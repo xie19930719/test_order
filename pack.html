@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>行動包裝核對系統</title>
+  <!-- 引入 html5-qrcode 套件 -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    :root {
+      --bg: #f5f5f4;
+      --card: #ffffff;
+      --text: #1c1917;
+      --muted: #78716c;
+      --border: #e7e5e4;
+      --primary: #292524;
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --error: #dc2626;
+      --error-bg: #fee2e2;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; max-width: 500px; margin: 0 auto; }
+
+    /* 頂部訂單資訊與箱型提示 */
+    .header-card {
+      background: var(--card); border-radius: 12px; padding: 16px;
+      border: 1px solid var(--border); margin-bottom: 12px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .order-id { font-size: 18px; font-weight: 700; }
+    .customer-name { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .box-badge {
+      background: #fef3c7; color: #b45309; font-weight: 700;
+      padding: 6px 12px; border-radius: 8px; font-size: 14px; border: 1px solid #fde68a;
+    }
+
+    /* 相機掃描區塊 */
+    .scanner-box {
+      background: #000; border-radius: 12px; overflow: hidden;
+      position: relative; margin-bottom: 12px; border: 2px solid var(--border);
+    }
+    #reader { width: 100%; }
+    
+    /* 狀態提示橫幅 */
+    .status-banner {
+      padding: 12px; border-radius: 10px; text-align: center;
+      font-weight: 600; font-size: 15px; margin-bottom: 12px;
+      background: var(--card); border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .status-banner.success { background: var(--success-bg); color: var(--success); border-color: #86efac; }
+    .status-banner.error { background: var(--error-bg); color: var(--error); border-color: #fca5a5; }
+    .status-banner.complete { background: var(--success); color: #fff; font-size: 17px; }
+
+    /* 手動 / 藍牙槍備用輸入框 */
+    .manual-input-group { display: flex; gap: 8px; margin-bottom: 16px; }
+    .manual-input-group input {
+      flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+      font-size: 15px; background: var(--card);
+    }
+    .manual-input-group button {
+      padding: 10px 16px; border-radius: 8px; border: none;
+      background: var(--primary); color: #fff; font-weight: 600; cursor: pointer;
+    }
+
+    /* 商品明細清單 */
+    .item-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+    .item-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px; display: flex; justify-content: space-between; align-items: center;
+      transition: all 0.2s;
+    }
+    .item-card.done { background: var(--success-bg); border-color: #86efac; opacity: 0.85; }
+    .item-info { flex: 1; }
+    .item-name { font-weight: 600; font-size: 15px; }
+    .item-sku { font-size: 13px; color: var(--muted); font-family: monospace; margin-top: 3px; }
+    .item-count {
+      font-size: 18px; font-weight: 700; min-width: 65px; text-align: right;
+    }
+    .item-card.done .item-count { color: var(--success); }
+
+    /* 底部切換訂單按鈕 */
+    .controls { display: flex; gap: 10px; }
+    .btn-next {
+      width: 100%; padding: 14px; border-radius: 10px; border: none;
+      background: var(--primary); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer;
+    }
+    .btn-next:disabled { background: #d6d3d1; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. 訂單資訊 -->
+  <div class="header-card">
+    <div>
+      <div class="order-id" id="orderId">#1001</div>
+      <div class="customer-name" id="customerInfo">王小明 · 7-11 取貨</div>
+    </div>
+    <div class="box-badge" id="boxType">建議：M 號箱</div>
+  </div>
+
+  <!-- 2. 相機掃描器 -->
+  <div class="scanner-box">
+    <div id="reader"></div>
+  </div>
+
+  <!-- 3. 掃描狀態回饋 -->
+  <div class="status-banner" id="statusBanner">請將商品 SKU 條碼對準鏡頭</div>
+
+  <!-- 4. 藍牙條碼槍 / 手動備用輸入 -->
+  <div class="manual-input-group">
+    <input type="text" id="manualSku" placeholder="刷不過？可手動輸入或用藍牙槍刷入" />
+    <button onclick="handleManualSubmit()">確認</button>
+  </div>
+
+  <!-- 5. 待核對商品清單 -->
+  <div class="item-list" id="itemList"></div>
+
+  <!-- 6. 下一筆按鈕 -->
+  <div class="controls">
+    <button class="btn-next" id="nextOrderBtn" onclick="loadNextOrder()">跳過 / 下一筆訂單 →</button>
+  </div>
+
+  <script>
+    // ==========================================
+    // 模擬 Shopify 匯入的訂單資料 (實際使用可替換為你的 CSV 解析結果)
+    // ==========================================
+    const orders = [
+      {
+        id: "#1001",
+        customer: "陳小姐 · 全家店到店",
+        box: "M 號箱",
+        items: [
+          { sku: "TOP-012-BK-M", name: "重磅純棉素T (黑 / M)", qty: 2, scanned: 0 },
+          { sku: "ACC-005-WHT", name: "日系簡約帆布袋 (米白)", qty: 1, scanned: 0 }
+        ]
+      },
+      {
+        id: "#1002",
+        customer: "林先生 · 宅配到府",
+        box: "L 號箱",
+        items: [
+          { sku: "JKT-003-NVY-L", name: "防潑水連帽風衣 (深藍 / L)", qty: 1, scanned: 0 },
+          { sku: "PNT-008-KHK-M", name: "寬版工裝長褲 (卡其 / M)", qty: 1, scanned: 0 }
+        ]
+      }
+    ];
+
+    let currentOrderIndex = 0;
+    let lastScannedCode = "";
+    let lastScanTime = 0;
+
+    // ==========================================
+    // 音效合成器 (免音檔，直接透過瀏覽器發聲)
+    // ==========================================
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playTone(type) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      const now = audioCtx.currentTime;
+      if (type === 'success') {
+        // 清脆高音叮一聲
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.setValueAtTime(1174.66, now + 0.08);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else if (type === 'error') {
+        // 低沉警告音
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.setValueAtTime(140, now + 0.15);
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.start(now);
+        osc.stop(now + 0.4);
+      } else if (type === 'complete') {
+        // 整單完成提示音
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.1);
+        osc.frequency.setValueAtTime(783.99, now + 0.2);
+        osc.frequency.setValueAtTime(1046.50, now + 0.3);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+        osc.start(now);
+        osc.stop(now + 0.55);
+      }
+    }
+
+    // ==========================================
+    // 畫面渲染與核對邏輯
+    // ==========================================
+    function renderOrder() {
+      const order = orders[currentOrderIndex];
+      document.getElementById('orderId').textContent = order.id;
+      document.getElementById('customerInfo').textContent = order.customer;
+      document.getElementById('boxType').textContent = `建議：${order.box}`;
+
+      const listEl = document.getElementById('itemList');
+      listEl.innerHTML = '';
+
+      let allDone = true;
+      order.items.forEach(item => {
+        const isDone = item.scanned >= item.qty;
+        if (!isDone) allDone = false;
+
+        const card = document.createElement('div');
+        card.className = `item-card ${isDone ? 'done' : ''}`;
+        card.innerHTML = `
+          <div class="item-info">
+            <div class="item-name">${item.name}</div>
+            <div class="item-sku">SKU: ${item.sku}</div>
+          </div>
+          <div class="item-count">${item.scanned} / ${item.qty}</div>
+        `;
+        listEl.appendChild(card);
+      });
+
+      const banner = document.getElementById('statusBanner');
+      const nextBtn = document.getElementById('nextOrderBtn');
+
+      if (allDone) {
+        banner.className = 'status-banner complete';
+        banner.textContent = '🎉 核對完成！請封箱貼單';
+        nextBtn.textContent = '✅ 完成，進入下一筆訂單 →';
+        nextBtn.style.background = '#16a34a';
+      } else {
+        nextBtn.textContent = '跳過 / 下一筆訂單 →';
+        nextBtn.style.background = '#292524';
+      }
+    }
+
+    function processScannedSku(rawSku) {
+      const sku = rawSku.trim().toUpperCase();
+      if (!sku) return;
+
+      const order = orders[currentOrderIndex];
+      const banner = document.getElementById('statusBanner');
+      const matchedItem = order.items.find(i => i.sku.toUpperCase() === sku);
+
+      if (!matchedItem) {
+        // 刷錯商品
+        playTone('error');
+        banner.className = 'status-banner error';
+        banner.textContent = `❌ 錯誤！此訂單不含 [${sku}]`;
+        return;
+      }
+
+      if (matchedItem.scanned >= matchedItem.qty) {
+        // 數量已滿，多刷了
+        playTone('error');
+        banner.className = 'status-banner error';
+        banner.textContent = `⚠️ 數量已滿！[${sku}] 不需要再拿了`;
+        return;
+      }
+
+      // 核對成功
+      matchedItem.scanned += 1;
+      const isOrderComplete = order.items.every(i => i.scanned >= i.qty);
+
+      if (isOrderComplete) {
+        playTone('complete');
+      } else {
+        playTone('success');
+        banner.className = 'status-banner success';
+        banner.textContent = `✅ 正確：${matchedItem.name} (${matchedItem.scanned}/${matchedItem.qty})`;
+      }
+
+      renderOrder();
+    }
+
+    function handleManualSubmit() {
+      const input = document.getElementById('manualSku');
+      processScannedSku(input.value);
+      input.value = '';
+    }
+
+    // 支援藍牙條碼槍按 Enter 自動送出
+    document.getElementById('manualSku').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') handleManualSubmit();
+    });
+
+    function loadNextOrder() {
+      if (currentOrderIndex < orders.length - 1) {
+        currentOrderIndex++;
+        const banner = document.getElementById('statusBanner');
+        banner.className = 'status-banner';
+        banner.textContent = '請將商品 SKU 條碼對準鏡頭';
+        renderOrder();
+      } else {
+        alert('所有訂單皆已處理完畢！');
+      }
+    }
+
+    // ==========================================
+    // 啟動手機相機掃描器
+    // ==========================================
+    function startScanner() {
+      const html5QrCode = new Html5Qrcode("reader");
+      const config = {
+        fps: 10, // 每秒掃描幀數
+        qrbox: { width: 260, height: 120 }, // 適合一維條碼的長方形掃描框
+        aspectRatio: 1.777778
+      };
+
+      // 優先使用手機後置鏡頭 ("environment")
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          const now = Date.now();
+          // 防呆冷卻：同一個條碼 2 秒內不重複觸發，避免連續誤扣
+          if (decodedText === lastScannedCode && (now - lastScanTime) < 2000) {
+            return;
+          }
+          lastScannedCode = decodedText;
+          lastScanTime = now;
+          processScannedSku(decodedText);
+        },
+        (errorMessage) => {
+          // 掃描過程中的未對焦雜訊忽略即可
+        }
+      ).catch(err => {
+        document.getElementById('statusBanner').textContent = '⚠️ 無法開啟相機（請確認使用 HTTPS 網址並允許相機權限）';
+      });
+    }
+
+    // 初始化
+    renderOrder();
+    window.addEventListener('load', startScanner);
+  </script>
+</body>
+</html>
