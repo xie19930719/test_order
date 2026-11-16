@@ -449,7 +449,7 @@
 
     <div id="report-content" class="hidden space-y-8">
 
-      <!-- Action Bar & Summary Bar (含雲端暫存批次與列印按鈕) -->
+      <!-- Action Bar & Summary Bar (僅保留雲端暫存批次) -->
       <aside aria-label="數據統計列" class="no-print flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <dl class="flex items-center space-x-6 text-xs text-slate-600">
           <div>
@@ -474,9 +474,6 @@
               ☁️ 儲存供手機掃碼
             </button>
           </div>
-          <button onclick="window.print()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5">
-            🖨️ 列印明細 (含訂單條碼)
-          </button>
         </div>
       </aside>
 
@@ -558,11 +555,11 @@
       </div>
 
       <div class="space-y-2.5 text-left">
-        <div class="flex gap-2">
-          <select id="cloud-batch-select" class="flex-1 p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 font-mono">
+        <div class="flex items-center gap-2 w-full">
+          <select id="cloud-batch-select" class="flex-1 min-w-0 truncate p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 font-mono">
             <option value="">讀取雲端出貨批次中...</option>
           </select>
-          <button onclick="fetchCloudBatchList()" class="px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 text-xs font-bold" title="重新整理清單">
+          <button onclick="fetchCloudBatchList()" class="px-3 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 text-xs font-bold shrink-0" title="重新整理清單">
             🔄
           </button>
         </div>
@@ -584,8 +581,8 @@
       
       <!-- 0. 雲端即時存檔狀態列 -->
       <div class="flex items-center justify-between px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[11px]">
-        <span id="pack-batch-tag" class="font-mono font-bold text-slate-600">批次：-</span>
-        <div class="flex items-center gap-2">
+        <span id="pack-batch-tag" class="font-mono font-bold text-slate-600 truncate">批次：-</span>
+        <div class="flex items-center gap-2 shrink-0">
           <span id="cloud-sync-indicator" class="font-bold text-emerald-700">☁️ 雲端進度已同步</span>
           <button onclick="syncPackProgressToCloud(true)" class="px-2 py-0.5 bg-white hover:bg-slate-50 border border-slate-300 rounded text-slate-700 font-bold" title="立即手動存回試算表">
             立即存檔
@@ -595,7 +592,7 @@
 
       <!-- 1. 訂單切換選單 (支援缺件暫存跳過與切回) -->
       <div class="jp-card p-3 flex items-center justify-between gap-2 bg-white">
-        <select id="pack-order-select" onchange="selectPackOrder(this.value)" class="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-sm font-bold rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono">
+        <select id="pack-order-select" onchange="selectPackOrder(this.value)" class="flex-1 min-w-0 truncate bg-slate-50 border border-slate-300 text-slate-900 text-sm font-bold rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono">
           <!-- 動態產生訂單選項 -->
         </select>
         <button onclick="backToDateSelector()" class="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg shrink-0" title="重選批次">
@@ -682,6 +679,22 @@
     /* ===== 2. 獨立出貨暫存庫 Apps Script 網址 ===== */
     const BATCH_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQ7eWzVPfViCmQ2qvYyf1A4X8nc5wDbZxR91thfrKvJysgD5OcmPa8PTj8Zai5vL3z/exec';
 
+    /* ===== 3. 自訂專屬掃碼音效檔設定（放在同一個網頁資料夾即可所有手機共用） ===== */
+    const CUSTOM_SOUNDS = {
+      success: '64答對3.mp3',        // 掃描正確
+      error: '65答錯.mp3',           // 掃描失敗 / 拿錯 / 數量已滿
+      complete: '68小朋友歡呼聲.mp3' // 整筆訂單完成
+    };
+
+    const preloadedAudioMap = {};
+    Object.entries(CUSTOM_SOUNDS).forEach(([key, src]) => {
+      try {
+        const audio = new Audio(src);
+        audio.preload = 'auto';
+        preloadedAudioMap[key] = audio;
+      } catch (e) {}
+    });
+
     let modelToDetailMap = new Map();
     let detailOrderMap = new Map();
     let detailExtraInfoMap = new Map();
@@ -718,6 +731,32 @@
       const hh = String(now.getHours()).padStart(2, '0');
       const min = String(now.getMinutes()).padStart(2, '0');
       return `${yyyy}.${mm}.${dd}-${hh}:${min}`;
+    }
+
+    // 將試算表回傳的長日期格式（例如 Mon Nov 16 2026 00:00:00 GMT+0800...）簡化為 YYYY.MM.DD
+    function formatBatchLabelForDisplay(rawText) {
+      const str = String(rawText || '').trim();
+      if (!str) return '';
+
+      const gmtMatch = str.match(/^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})\s+(\d{2}):(\d{2}):\d{2}\s+GMT[^\s]*(?:\s*\([^)]*\))?(.*)$/);
+      if (gmtMatch) {
+        const monthMap = {
+          Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
+        };
+        const mm = monthMap[gmtMatch[1]] || '01';
+        const dd = String(gmtMatch[2]).padStart(2, '0');
+        const yyyy = gmtMatch[3];
+        const hh = gmtMatch[4];
+        const min = gmtMatch[5];
+        const rest = (gmtMatch[6] || '').trim();
+        const datePart = (hh === '00' && min === '00')
+          ? `${yyyy}.${mm}.${dd}`
+          : `${yyyy}.${mm}.${dd}-${hh}:${min}`;
+        return rest ? `${datePart} ${rest}` : datePart;
+      }
+
+      return str.replace(/\s*\([^)]*標準時間\)/g, '');
     }
 
     function updateBatchTimestampPreview() {
@@ -856,12 +895,13 @@
     }
 
     function computeBatchLabel(batchKey, orders) {
+      const displayKey = formatBatchLabelForDisplay(batchKey);
       const totalOrders = orders.length;
       const doneOrders = orders.filter(o => o.items.length > 0 && o.items.every(i => i.scanned >= i.qty)).length;
       if (doneOrders > 0) {
-        return `${batchKey} (已完成 ${doneOrders}/${totalOrders} 筆)`;
+        return `${displayKey} (已完成 ${doneOrders}/${totalOrders} 筆)`;
       }
-      return `${batchKey} (共 ${totalOrders} 筆訂單)`;
+      return `${displayKey} (共 ${totalOrders} 筆訂單)`;
     }
 
     function saveBatchToCloud() {
@@ -1012,7 +1052,7 @@
           list.forEach(item => {
             const opt = document.createElement('option');
             opt.value = item.batchKey;
-            opt.textContent = `${item.label}`;
+            opt.textContent = formatBatchLabelForDisplay(item.label || item.batchKey);
             selectEl.appendChild(opt);
           });
         })
@@ -1041,6 +1081,8 @@
             return;
           }
           currentLoadedBatchKey = batchKey;
+          const displayKey = formatBatchLabelForDisplay(batchKey);
+
           packOrdersList = ordersData.map(ord => ({
             ...ord,
             name: maskRecipientName(ord.name),
@@ -1058,7 +1100,7 @@
           currentPackOrderIdx = firstUnfinishedIdx !== -1 ? firstUnfinishedIdx : 0;
 
           const batchTag = document.getElementById('pack-batch-tag');
-          if (batchTag) batchTag.textContent = `批次：${batchKey}`;
+          if (batchTag) batchTag.textContent = `批次：${displayKey}`;
 
           const indicator = document.getElementById('cloud-sync-indicator');
           if (indicator) {
@@ -1070,7 +1112,7 @@
           document.getElementById('pack-workspace').classList.remove('hidden');
           renderPackWorkspace();
           startMobileScanner();
-          showToast(`已載入 ${batchKey} 共 ${packOrdersList.length} 筆訂單！`, 'success');
+          showToast(`已載入 ${displayKey} 共 ${packOrdersList.length} 筆訂單！`, 'success');
         })
         .catch(err => {
           console.error(err);
@@ -2133,9 +2175,25 @@
       renderPackWorkspace();
     }
 
-    // Web Audio API 音效合成器
+    // 音效播放器：優先播放你的專屬自訂音效檔，若讀取失敗則自動使用內建合成音效
     const packAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playFeedbackTone(type) {
+      const customAudio = preloadedAudioMap[type];
+      if (customAudio) {
+        try {
+          customAudio.pause();
+          customAudio.currentTime = 0;
+          const playPromise = customAudio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => playSynthFallbackTone(type));
+          }
+          return;
+        } catch (e) {}
+      }
+      playSynthFallbackTone(type);
+    }
+
+    function playSynthFallbackTone(type) {
       try {
         if (packAudioCtx.state === 'suspended') packAudioCtx.resume();
         const osc = packAudioCtx.createOscillator();
