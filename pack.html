@@ -49,6 +49,21 @@
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
     }
 
+    /* 手機掃描框強制限制為 16:9 比例，避免直式鏡頭佔據過多垂直畫面 */
+    #qr-reader {
+      width: 100% !important;
+      aspect-ratio: 16 / 9;
+      max-height: 230px;
+      overflow: hidden;
+      position: relative;
+      background: #000000;
+    }
+    #qr-reader video {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+    }
+
     /* Media Print Optimization Rules */
     @media print {
       body {
@@ -455,7 +470,7 @@
           <div class="flex items-center gap-1.5 bg-emerald-50/80 border border-emerald-200 px-2.5 py-1.5 rounded-lg">
             <span class="text-[11px] font-bold text-emerald-800">出貨日期：</span>
             <input type="date" id="batch-date-input" class="bg-white border border-emerald-300 rounded px-2 py-0.5 text-xs font-mono text-slate-800 focus:outline-none">
-            <button onclick="saveBatchToCloud()" id="save-cloud-btn" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-sm transition-all">
+            <button onclick="saveBatchToCloud()" id="save-cloud-btn" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-sm transition-all" title="自動去識別化遮蔽個資後上傳">
               ☁️ 儲存供手機掃碼
             </button>
           </div>
@@ -539,7 +554,7 @@
       </div>
       <div>
         <h2 class="text-base font-bold text-slate-900">選擇出貨日期批次</h2>
-        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取當日訂單與已掃描進度</p>
+        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取當日訂單（已啟用個資遮蔽保護）</p>
       </div>
 
       <div class="space-y-2.5 text-left">
@@ -588,7 +603,7 @@
         </button>
       </div>
 
-      <!-- 2. 當前訂單資訊與包材提示 -->
+      <!-- 2. 當前訂單資訊與包材提示（個資遮蔽顯示） -->
       <div class="jp-card p-4 space-y-2.5">
         <div class="flex items-start justify-between gap-2">
           <div>
@@ -596,7 +611,7 @@
               <span id="pack-order-id" class="text-xl font-black text-slate-900 font-mono">#1001</span>
               <span id="pack-order-progress" class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">0 / 0</span>
             </div>
-            <p id="pack-customer-info" class="text-xs text-slate-500 mt-0.5">收件人：-</p>
+            <p id="pack-customer-info" class="text-xs text-slate-500 mt-0.5 font-mono">收件人：-</p>
           </div>
           <div id="pack-box-badges" class="flex flex-col items-end gap-1">
             <!-- 動態顯示建議包裝盒與內襯 -->
@@ -605,7 +620,7 @@
         <div id="pack-adjustment-alert" class="hidden bg-amber-50 border border-amber-300 text-amber-900 text-xs p-2 rounded-lg font-medium"></div>
       </div>
 
-      <!-- 3. 手機相機掃描框（含 3 秒冷卻倒數 + 移開鏡頭雙重防誤觸） -->
+      <!-- 3. 手機相機掃描框（強制 16:9 寬比例 + 3 秒冷卻倒數 + 移開鏡頭雙重防誤觸） -->
       <div class="bg-black rounded-xl overflow-hidden border-2 border-slate-300 relative shadow-inner">
         <div id="qr-reader" class="w-full"></div>
         <div id="camera-control-bar" class="bg-slate-900 p-2 flex justify-between items-center text-xs text-slate-300">
@@ -727,6 +742,41 @@
     });
 
     /* =========================================================
+       個資去識別化遮蔽工具函式 (用於雲端暫存與手機掃碼顯示)
+    ========================================================= */
+    // 電話僅保留末三碼（例如 0912345678 -> *******678）
+    function maskPhoneLastThree(phone) {
+      const str = cleanStr(phone);
+      if (!str || str === '-') return '-';
+      if (str.includes('*') && str.length <= 12) return str;
+      const digits = str.replace(/\s+/g, '');
+      if (digits.length <= 3) return digits;
+      return '*'.repeat(digits.length - 3) + digits.slice(-3);
+    }
+
+    // 姓名遮蔽中間字元（例如 王小明 -> 王*明 / 陳大 -> 陳*）
+    function maskRecipientName(name) {
+      const str = cleanStr(name);
+      if (!str || str === '-') return '-';
+      if (str.includes('*')) return str;
+      const chars = Array.from(str);
+      if (chars.length <= 1) return chars[0];
+      if (chars.length === 2) return `${chars[0]}*`;
+      return `${chars[0]}${'*'.repeat(chars.length - 2)}${chars[chars.length - 1]}`;
+    }
+
+    // 地址去識別化（僅保留縣市/行政區，隱藏門牌號碼）
+    function maskRecipientAddress(addr) {
+      const str = cleanStr(addr);
+      if (!str || str === '-') return '-';
+      const parts = str.split(/\s+/);
+      if (parts.length >= 2) {
+        return `${parts[0]} ${parts[1]} (地址已遮蔽)`;
+      }
+      return str.length > 6 ? `${str.slice(0, 6)}***` : '***';
+    }
+
+    /* =========================================================
        模式切換邏輯 (彙整列印模式 vs 手機掃碼包裝模式)
     ========================================================= */
     function switchMode(mode) {
@@ -769,15 +819,27 @@
     }
 
     /* =========================================================
-       獨立暫存試算表 API 讀寫與掃碼進度自動回寫功能
+       獨立暫存試算表 API 讀寫與掃碼進度自動回寫功能（含個資遮蔽轉換）
     ========================================================= */
     function serializePackOrders(orders) {
       return orders.map(ord => ({
-        ...ord,
+        orderId: ord.orderId,
+        cleanId: ord.cleanId,
+        name: maskRecipientName(ord.name),
+        phone: maskPhoneLastThree(ord.phone),
+        address: maskRecipientAddress(ord.address),
+        adjustment: ord.adjustment ? { status: ord.adjustment.status } : null,
         pkg: {
           boxes: Object.fromEntries(ord.pkg?.boxes || []),
           linings: Object.fromEntries(ord.pkg?.linings || [])
-        }
+        },
+        items: ord.items.map(i => ({
+          model: i.model,
+          normModel: i.normModel,
+          detailName: i.detailName,
+          qty: i.qty,
+          scanned: i.scanned
+        }))
       }));
     }
 
@@ -802,7 +864,7 @@
       const btn = document.getElementById('save-cloud-btn');
 
       btn.disabled = true;
-      btn.textContent = '⏳ 雲端儲存中...';
+      btn.textContent = '⏳ 去識別化儲存中...';
 
       fetch(BATCH_GAS_URL, {
         method: 'POST',
@@ -816,7 +878,7 @@
       .then(res => res.json())
       .then(result => {
         if (result.status === 'success') {
-          showToast(`✅ 已成功儲存「${label}」，手機端可直接選取！`, 'success');
+          showToast(`✅ 已去識別化遮蔽個資並儲存「${label}」！`, 'success');
           fetchCloudBatchList();
         } else {
           showToast(`儲存失敗：${result.message}`, 'error');
@@ -967,6 +1029,9 @@
           currentLoadedBatchKey = batchKey;
           packOrdersList = ordersData.map(ord => ({
             ...ord,
+            name: maskRecipientName(ord.name),
+            phone: maskPhoneLastThree(ord.phone),
+            address: maskRecipientAddress(ord.address),
             pkg: {
               boxes: new Map(Object.entries(ord.pkg?.boxes || {})),
               linings: new Map(Object.entries(ord.pkg?.linings || {}))
@@ -1814,9 +1879,9 @@
         packOrdersList.push({
           orderId: order.orderId,
           cleanId: order.orderId.replace(/^#/, '').trim().toUpperCase(),
-          name: order.name,
-          phone: order.phone,
-          address: order.address,
+          name: maskRecipientName(order.name),
+          phone: maskPhoneLastThree(order.phone),
+          address: maskRecipientAddress(order.address),
           adjustment: order.adjustment,
           pkg: getOrderPackagingSummary(order),
           items: Array.from(mergedItemsMap.values())
@@ -1856,14 +1921,14 @@
 
         const opt = document.createElement('option');
         opt.value = idx;
-        opt.textContent = `${ord.orderId} (${ord.name}) ${statusTag}`;
+        opt.textContent = `${ord.orderId} (${maskRecipientName(ord.name)}) ${statusTag}`;
         if (idx === currentPackOrderIdx) opt.selected = true;
         selectEl.appendChild(opt);
       });
 
       const currentOrder = packOrdersList[currentPackOrderIdx];
       document.getElementById('pack-order-id').textContent = currentOrder.orderId;
-      document.getElementById('pack-customer-info').textContent = `${currentOrder.name} · ${currentOrder.phone}`;
+      document.getElementById('pack-customer-info').textContent = `${maskRecipientName(currentOrder.name)} · ${maskPhoneLastThree(currentOrder.phone)}`;
 
       const boxBadgesEl = document.getElementById('pack-box-badges');
       boxBadgesEl.innerHTML = '';
@@ -2013,7 +2078,7 @@
         playFeedbackTone('switch');
         currentPackOrderIdx = matchedOrderIndex;
         banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-indigo-50 border border-indigo-300 text-indigo-900';
-        banner.textContent = `📋 已切換訂單：${packOrdersList[matchedOrderIndex].orderId} (${packOrdersList[matchedOrderIndex].name})`;
+        banner.textContent = `📋 已切換訂單：${packOrdersList[matchedOrderIndex].orderId} (${maskRecipientName(packOrdersList[matchedOrderIndex].name)})`;
         renderPackWorkspace();
         return;
       }
@@ -2116,11 +2181,11 @@
         statusText.textContent = '🔒 請將已掃商品移開鏡頭再掃下一件';
       } else {
         statusText.className = 'font-semibold text-emerald-400';
-        statusText.textContent = '🟢 鏡頭就緒，請掃描商品條碼';
+        statusText.textContent = '🟢 鏡頭就緒 (16:9)，請掃描條碼';
       }
     }
 
-    // 啟動相機掃描器（每 3 秒只能掃一件 + 未移開鏡頭鎖定）
+    // 啟動相機掃描器（16:9 視窗比例 + 每 3 秒只能掃一件 + 未移開鏡頭鎖定）
     function startMobileScanner() {
       if (isScannerRunning) return;
       const statusText = document.getElementById('camera-status-text');
@@ -2135,7 +2200,19 @@
 
       html5QrCodeInstance.start(
         { facingMode: "environment" },
-        { fps: 12, qrbox: { width: 250, height: 110 }, aspectRatio: 1.777778 },
+        {
+          fps: 12,
+          aspectRatio: 1.777778,
+          videoConstraints: {
+            facingMode: "environment",
+            aspectRatio: { ideal: 1.777778 }
+          },
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const boxWidth = Math.min(Math.floor(viewfinderWidth * 0.78), 320);
+            const boxHeight = Math.min(Math.floor(viewfinderHeight * 0.65), 120);
+            return { width: Math.max(boxWidth, 180), height: Math.max(boxHeight, 75) };
+          }
+        },
         (decodedText) => {
           const now = Date.now();
           const normCode = normalizeKey(decodedText);
