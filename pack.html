@@ -605,12 +605,12 @@
         <div id="pack-adjustment-alert" class="hidden bg-amber-50 border border-amber-300 text-amber-900 text-xs p-2 rounded-lg font-medium"></div>
       </div>
 
-      <!-- 3. 手機相機掃描框 -->
+      <!-- 3. 手機相機掃描框（含防連發移開鎖定提示） -->
       <div class="bg-black rounded-xl overflow-hidden border-2 border-slate-300 relative shadow-inner">
         <div id="qr-reader" class="w-full"></div>
         <div id="camera-control-bar" class="bg-slate-900 p-2 flex justify-between items-center text-xs text-slate-300">
-          <span id="camera-status-text">📷 相機準備中...</span>
-          <button onclick="toggleScanner()" id="toggle-cam-btn" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded font-semibold">
+          <span id="camera-status-text" class="font-semibold">📷 相機準備中...</span>
+          <button onclick="toggleScanner()" id="toggle-cam-btn" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded font-semibold shrink-0">
             重啟鏡頭
           </button>
         </div>
@@ -629,7 +629,7 @@
         </button>
       </div>
 
-      <!-- 6. 待核對商品清單 -->
+      <!-- 6. 待核對商品清單（含 -1 / +1 修正鈕） -->
       <div id="pack-items-list" class="space-y-2">
         <!-- 動態產生商品卡片 -->
       </div>
@@ -680,22 +680,22 @@
     let currentMode = 'report';
     let packOrdersList = [];
     let currentPackOrderIdx = 0;
-    let currentLoadedBatchKey = ''; // 記錄目前載入的日期代碼 (如 2026-11-16)
-    let cloudSyncTimer = null;      // 防抖背景同步計時器
+    let currentLoadedBatchKey = '';
+    let cloudSyncTimer = null;
     let isSyncingCloud = false;
     let pendingCloudSync = false;
 
+    // 鏡頭與防誤觸（移開解鎖）狀態變數
     let html5QrCodeInstance = null;
     let isScannerRunning = false;
-    let lastScannedCode = '';
-    let lastScanTimestamp = 0;
+    let activeHeldCode = '';        // 目前停留在鏡頭前已掃過的條碼（未移開前鎖定）
+    let clearAbsenceTimer = null;   // 偵測條碼已離開鏡頭的解鎖計時器
 
     window.addEventListener('DOMContentLoaded', () => {
       fetchGoogleSheetMapping();
       setupDragAndDrop();
       setupModalKeyboardEvents();
 
-      // 預設將出貨日期設為今天
       const dateInput = document.getElementById('batch-date-input');
       if (dateInput) {
         const today = new Date();
@@ -705,16 +705,13 @@
         dateInput.value = `${yyyy}-${mm}-${dd}`;
       }
 
-      // 預先抓取雲端暫存日期清單
       fetchCloudBatchList();
 
-      // 支援網址參數 ?mode=pack 直接開啟手機掃碼模式
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('mode') === 'pack') {
         switchMode('pack');
       }
 
-      // 監聽手動/藍牙槍輸入框 Enter
       const manualInput = document.getElementById('pack-manual-input');
       if (manualInput) {
         manualInput.addEventListener('keypress', (e) => {
@@ -790,7 +787,6 @@
       return `${batchKey} (共 ${totalOrders} 筆訂單)`;
     }
 
-    // 電腦端初次儲存出貨批次
     function saveBatchToCloud() {
       if (!packOrdersList || packOrdersList.length === 0) {
         showToast('請先上傳並解析訂單檔案！', 'error');
@@ -833,7 +829,6 @@
       });
     }
 
-    // 手機端掃碼後：排程自動背景同步進度至 Google 暫存試算表
     function scheduleCloudProgressSync(immediate = false) {
       if (!currentLoadedBatchKey) {
         currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
@@ -850,14 +845,12 @@
       if (immediate) {
         syncPackProgressToCloud(false);
       } else {
-        // 停手 2.5 秒後自動合併回寫，避免連續掃條碼時塞車
         cloudSyncTimer = setTimeout(() => {
           syncPackProgressToCloud(false);
         }, 2500);
       }
     }
 
-    // 執行寫入 Google 暫存試算表
     function syncPackProgressToCloud(showManualToast = false) {
       if (!packOrdersList || packOrdersList.length === 0) return;
       if (!currentLoadedBatchKey) {
@@ -969,7 +962,6 @@
             return;
           }
           currentLoadedBatchKey = batchKey;
-          // 還原包材 Map 結構與已儲存的 scanned 數量
           packOrdersList = ordersData.map(ord => ({
             ...ord,
             pkg: {
@@ -978,7 +970,6 @@
             }
           }));
 
-          // 自動跳轉到第一筆「尚未包裝完成」的訂單
           const firstUnfinishedIdx = packOrdersList.findIndex(
             o => o.items.some(i => i.scanned < i.qty)
           );
@@ -1498,7 +1489,6 @@
       lastProcessedDetailSummaryMap = detailSummaryMap;
       lastProcessedOrdersMap = ordersMap;
 
-      // 同步建立手機掃碼核對用的訂單陣列
       initPackOrdersData(ordersMap);
 
       renderReport(ordersMap, detailSummaryMap, totalItemRowsCount);
@@ -1608,7 +1598,6 @@
       return fullAddr.replace(/^['’]+/, '');
     }
 
-    // 計算單筆訂單所需的包裝盒與內襯提示 (直接從 Google Sheet J/K 列抓取)
     function getOrderPackagingSummary(order) {
       const boxes = new Map();
       const linings = new Map();
@@ -1637,7 +1626,6 @@
       document.getElementById('stat-total-rows').textContent = `${totalItemRows} 列`;
       document.getElementById('stat-unique-details').textContent = `${detailSummaryMap.size} 款`;
 
-      // Render Logic A Table
       const tbody = document.getElementById('logic-a-tbody');
       tbody.innerHTML = '';
 
@@ -1693,7 +1681,6 @@
 
       renderScreenExtraSummary(liningCounts, boxCounts);
 
-      // Render Logic B Cards (加入訂單條碼 SVG 與包材提示)
       const cardsContainer = document.getElementById('logic-b-cards');
       cardsContainer.innerHTML = '';
 
@@ -1703,7 +1690,6 @@
         const cleanBarcodeVal = order.orderId.replace(/^#/, '').trim();
         const barcodeSvgId = `order-barcode-${cardNum}`;
 
-        // 取得該訂單的包裝盒/內襯建議
         const pkg = getOrderPackagingSummary(order);
         const pkgTags = [];
         pkg.boxes.forEach((q, name) => pkgTags.push(`📦 盒:${escapeHtml(name)}×${q}`));
@@ -1784,7 +1770,6 @@
 
         cardsContainer.appendChild(card);
 
-        // 渲染該卡片的 Code 128 條碼
         try {
           JsBarcode(`#${barcodeSvgId}`, cleanBarcodeVal, {
             format: "CODE128",
@@ -1808,7 +1793,6 @@
     function initPackOrdersData(ordersMap) {
       packOrdersList = [];
       ordersMap.forEach((order) => {
-        // 合併同一張訂單內「相同型號(model)」的商品數量，方便掃碼累加
         const mergedItemsMap = new Map();
         order.items.forEach(item => {
           const key = normalizeKey(item.model);
@@ -1878,7 +1862,6 @@
       document.getElementById('pack-order-id').textContent = currentOrder.orderId;
       document.getElementById('pack-customer-info').textContent = `${currentOrder.name} · ${currentOrder.phone}`;
 
-      // 顯示包材標籤
       const boxBadgesEl = document.getElementById('pack-box-badges');
       boxBadgesEl.innerHTML = '';
       currentOrder.pkg.boxes.forEach((q, name) => {
@@ -1888,7 +1871,6 @@
         boxBadgesEl.innerHTML += `<span class="text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded">🧩 襯：${escapeHtml(name)} ×${q}</span>`;
       });
 
-      // 顯示異動提醒
       const adjAlert = document.getElementById('pack-adjustment-alert');
       if (currentOrder.adjustment) {
         adjAlert.classList.remove('hidden');
@@ -1899,7 +1881,7 @@
         adjAlert.classList.add('hidden');
       }
 
-      // 渲染待核對商品卡片
+      // 渲染待核對商品卡片（包含 -1 與 +1 修正鈕）
       const listEl = document.getElementById('pack-items-list');
       listEl.innerHTML = '';
 
@@ -1912,11 +1894,19 @@
         const isDone = item.scanned >= item.qty;
 
         const card = document.createElement('div');
-        card.className = `p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+        card.className = `p-3.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
           isDone
             ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
             : 'bg-white border-slate-200 text-slate-900 shadow-sm'
         }`;
+
+        const minusBtnHtml = item.scanned > 0
+          ? `<button onclick="manualDecrementItem(${itemIdx})" class="w-7 h-7 flex items-center justify-center bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg text-xs font-black border border-rose-200" title="誤刷扣回 1 件">-1</button>`
+          : '';
+
+        const plusBtnHtml = !isDone
+          ? `<button onclick="manualIncrementItem(${itemIdx})" class="w-7 h-7 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-black border border-slate-300" title="手動加 1 件">+1</button>`
+          : '✅';
 
         card.innerHTML = `
           <div class="flex-1 min-w-0">
@@ -1925,11 +1915,12 @@
               型號：${escapeHtml(item.model)}
             </div>
           </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <span class="text-lg font-black font-mono ${isDone ? 'text-emerald-600' : 'text-slate-900'}">
+          <div class="flex items-center gap-1.5 shrink-0">
+            ${minusBtnHtml}
+            <span class="text-lg font-black font-mono px-1 ${isDone ? 'text-emerald-600' : 'text-slate-900'}">
               ${item.scanned} / ${item.qty}
             </span>
-            ${!isDone ? `<button onclick="manualIncrementItem(${itemIdx})" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-bold" title="手動+1">+1</button>` : '✅'}
+            ${plusBtnHtml}
           </div>
         `;
         listEl.appendChild(card);
@@ -1978,6 +1969,21 @@
       const ord = packOrdersList[currentPackOrderIdx];
       if (!ord || !ord.items[itemIdx]) return;
       processPackBarcode(ord.items[itemIdx].model);
+    }
+
+    // 誤觸扣回 1 件
+    function manualDecrementItem(itemIdx) {
+      const ord = packOrdersList[currentPackOrderIdx];
+      if (!ord || !ord.items[itemIdx]) return;
+      const item = ord.items[itemIdx];
+      if (item.scanned > 0) {
+        item.scanned -= 1;
+        const banner = document.getElementById('pack-status-banner');
+        banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-slate-100 border border-slate-300 text-slate-800';
+        banner.textContent = `↩️ 已扣回 1 件：${item.detailName} (${item.scanned}/${item.qty})`;
+        scheduleCloudProgressSync(false);
+        renderPackWorkspace();
+      }
     }
 
     function handlePackManualSubmit() {
@@ -2033,13 +2039,11 @@
 
       if (isOrderComplete) {
         playFeedbackTone('complete');
-        // 整筆訂單包裝完成時，立刻回寫至 Google 暫存試算表
         scheduleCloudProgressSync(true);
       } else {
         playFeedbackTone('success');
         banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-emerald-100 border border-emerald-400 text-emerald-900';
         banner.textContent = `✅ 正確：${matchedItem.detailName} (${matchedItem.scanned}/${matchedItem.qty})`;
-        // 單品掃碼時，排程 2.5 秒防抖背景回寫至 Google 暫存試算表
         scheduleCloudProgressSync(false);
       }
 
@@ -2094,6 +2098,7 @@
       } catch (e) {}
     }
 
+    // 啟動相機掃描器（含「物理防連發移開鎖定」機制）
     function startMobileScanner() {
       if (isScannerRunning) return;
       const statusText = document.getElementById('camera-status-text');
@@ -2101,22 +2106,46 @@
         html5QrCodeInstance = new Html5Qrcode("qr-reader");
       }
 
+      activeHeldCode = '';
+      if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
+
       html5QrCodeInstance.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 110 }, aspectRatio: 1.777778 },
+        { fps: 12, qrbox: { width: 250, height: 110 }, aspectRatio: 1.777778 },
         (decodedText) => {
-          const now = Date.now();
-          if (decodedText === lastScannedCode && (now - lastScanTimestamp) < 2000) {
-            return;
+          const normCode = normalizeKey(decodedText);
+
+          // 只要鏡頭中仍持續看到同一個條碼，就延後解鎖時間，絕不重複計算！
+          if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
+          clearAbsenceTimer = setTimeout(() => {
+            activeHeldCode = '';
+            if (statusText && isScannerRunning) {
+              statusText.className = 'font-semibold text-emerald-400';
+              statusText.textContent = '🟢 鏡頭就緒，請掃描下一件商品';
+            }
+          }, 850); // 必須離開鏡頭超過 0.85 秒才會解除鎖定
+
+          if (normCode === activeHeldCode) {
+            return; // 尚未移開鏡頭，直接略過防誤觸
           }
-          lastScannedCode = decodedText;
-          lastScanTimestamp = now;
+
+          // 首次掃到此商品：鎖定條碼並執行核對
+          activeHeldCode = normCode;
+          if (statusText) {
+            statusText.className = 'font-semibold text-amber-300';
+            statusText.textContent = '🔒 已掃入！請將商品移開鏡頭再掃下一件';
+          }
           processPackBarcode(decodedText);
         },
-        () => {}
+        () => {
+          // 當前畫面沒偵測到條碼時，交由 clearAbsenceTimer 倒數解鎖
+        }
       ).then(() => {
         isScannerRunning = true;
-        if (statusText) statusText.textContent = '🟢 鏡頭掃描運作中';
+        if (statusText) {
+          statusText.className = 'font-semibold text-emerald-400';
+          statusText.textContent = '🟢 鏡頭就緒，請掃描商品條碼';
+        }
       }).catch(() => {
         isScannerRunning = false;
         if (statusText) statusText.textContent = '⚠️ 無法開啟鏡頭（請確認 HTTPS 與權限，或用藍牙槍）';
@@ -2124,6 +2153,8 @@
     }
 
     function stopMobileScanner() {
+      activeHeldCode = '';
+      if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
       if (html5QrCodeInstance && isScannerRunning) {
         html5QrCodeInstance.stop().then(() => {
           isScannerRunning = false;
