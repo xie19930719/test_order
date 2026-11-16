@@ -86,7 +86,8 @@
       body.printing-a5 #toast-container,
       body.printing-a5 #mapping-modal,
       body.printing-a5 #gemini-modal,
-      body.printing-a5 main {
+      body.printing-a5 main,
+      body.printing-a5 #pack-mode-view {
         display: none !important;
       }
 
@@ -261,11 +262,11 @@
         </div>
         <div>
           <h1 class="font-bold text-sm sm:text-base tracking-wide text-slate-100">黑柳徹 Shopify 訂單彙整工具</h1>
-          <p class="text-[11px] text-slate-400 hidden sm:block">自動跨檔比對品項細目 ➔ 生成極速核對與掃碼包裝</p>
+          <p class="text-[11px] text-slate-400 hidden sm:block">自動跨檔比對品項細目 ➔ 雲端暫存批次 ➔ 手機掃碼包裝</p>
         </div>
       </div>
 
-      <!-- 🆕 模式切換按鈕列 -->
+      <!-- 模式切換按鈕列 -->
       <div class="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700 order-3 sm:order-2 w-full sm:w-auto justify-center">
         <button id="tab-report-btn" onclick="switchMode('report')" class="flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white shadow-sm transition-all">
           📊 訂單彙整與列印
@@ -298,7 +299,7 @@
   </header>
 
   <!-- =========================================================
-       模式一：原本的「訂單彙整與列印」主畫面
+       模式一：電腦端「訂單彙整與列印」主畫面
   ========================================================= -->
   <main id="report-mode-view" class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
 
@@ -433,8 +434,8 @@
 
     <div id="report-content" class="hidden space-y-8">
 
-      <!-- Action Bar & Summary Bar -->
-      <aside aria-label="數據統計列" class="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+      <!-- Action Bar & Summary Bar (含雲端暫存批次與列印按鈕) -->
+      <aside aria-label="數據統計列" class="no-print flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <dl class="flex items-center space-x-6 text-xs text-slate-600">
           <div>
             <dt class="text-slate-400 text-[10px]">解析總訂單數</dt>
@@ -449,9 +450,19 @@
             <dd id="stat-unique-details" class="text-sm font-bold text-slate-900 font-mono">0 款</dd>
           </div>
         </dl>
-        <button onclick="window.print()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5">
-          🖨️ 列印全部出貨明細 (含訂單條碼)
-        </button>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="flex items-center gap-1.5 bg-emerald-50/80 border border-emerald-200 px-2.5 py-1.5 rounded-lg">
+            <span class="text-[11px] font-bold text-emerald-800">出貨日期：</span>
+            <input type="date" id="batch-date-input" class="bg-white border border-emerald-300 rounded px-2 py-0.5 text-xs font-mono text-slate-800 focus:outline-none">
+            <button onclick="saveBatchToCloud()" id="save-cloud-btn" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-sm transition-all">
+              ☁️ 儲存供手機掃碼
+            </button>
+          </div>
+          <button onclick="window.print()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5">
+            🖨️ 列印明細 (含訂單條碼)
+          </button>
+        </div>
       </aside>
 
       <!-- Print Header for Standard A4 print -->
@@ -517,23 +528,40 @@
   </main>
 
   <!-- =========================================================
-       🆕 模式二：手機掃碼包裝核對工作站 (Pack Mode)
+       模式二：手機掃碼包裝核對工作站 (Pack Mode)
   ========================================================= -->
   <section id="pack-mode-view" class="hidden flex-grow max-w-lg w-full mx-auto px-4 py-5 space-y-4">
     
-    <!-- 若尚未匯入訂單，提供手機直接上傳 CSV/Excel 的入口 -->
+    <!-- 從獨立出貨暫存庫選擇日期批次 -->
     <div id="pack-upload-prompt" class="jp-card p-6 text-center space-y-4">
       <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto font-bold text-xl">
-        📱
+        📅
       </div>
       <div>
-        <h2 class="text-base font-bold text-slate-900">行動包裝掃碼核對站</h2>
-        <p class="text-xs text-slate-500 mt-1">請先匯入今日的 Shopify 訂單 Excel / CSV 檔案，系統會自動對應 Google 試算表的品名、包裝盒與內襯。</p>
+        <h2 class="text-base font-bold text-slate-900">選擇出貨日期批次</h2>
+        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取當日訂單，無需手動傳檔案</p>
       </div>
-      <label class="block w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl cursor-pointer shadow-sm transition-all">
-        📂 選擇訂單檔案 (.xlsx / .csv)
-        <input type="file" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
-      </label>
+
+      <div class="space-y-2.5 text-left">
+        <div class="flex gap-2">
+          <select id="cloud-batch-select" class="flex-1 p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 font-mono">
+            <option value="">讀取雲端出貨日期中...</option>
+          </select>
+          <button onclick="fetchCloudBatchList()" class="px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 text-xs font-bold" title="重新整理清單">
+            🔄
+          </button>
+        </div>
+        <button onclick="loadSelectedCloudBatch()" id="load-batch-btn" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
+          🚀 載入此日期訂單並開始掃碼
+        </button>
+      </div>
+
+      <div class="pt-3 border-t border-slate-100">
+        <label class="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer">
+          或手動上傳本機 Excel / CSV 檔案
+          <input type="file" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
+        </label>
+      </div>
     </div>
 
     <!-- 已載入訂單後的掃碼主控台 -->
@@ -544,13 +572,12 @@
         <select id="pack-order-select" onchange="selectPackOrder(this.value)" class="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-sm font-bold rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono">
           <!-- 動態產生訂單選項 -->
         </select>
-        <label class="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg cursor-pointer shrink-0" title="重新匯入訂單檔">
-          📂 換檔
-          <input type="file" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
-        </label>
+        <button onclick="backToDateSelector()" class="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg shrink-0" title="重選出貨日期">
+          📅 換日
+        </button>
       </div>
 
-      <!-- 2. 當前訂單資訊與包材提示 (自動讀取 Google Sheet J/K列) -->
+      <!-- 2. 當前訂單資訊與包材提示 -->
       <div class="jp-card p-4 space-y-2.5">
         <div class="flex items-start justify-between gap-2">
           <div>
@@ -623,8 +650,11 @@
       return false;
     };
 
-    /* ===== 🔧 Apps Script Web App 網址 ===== */
+    /* ===== 1. SKU / 包材主檔對應表 Apps Script 網址 ===== */
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxfzN0P4Up9gS9CmNW9lwylnQzJ7usU4WCCzcJW-UajCeUbUyOZm5aFR1sp3NVrVTCl/exec';
+
+    /* ===== 2. 獨立出貨暫存庫 Apps Script 網址 ===== */
+    const BATCH_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQ7eWzVPfViCmQ2qvYyf1A4X8nc5wDbZxR91thfrKvJysgD5OcmPa8PTj8Zai5vL3z/exec';
 
     let modelToDetailMap = new Map();
     let detailOrderMap = new Map();
@@ -635,7 +665,7 @@
     let lastProcessedDetailSummaryMap = new Map();
     let lastProcessedOrdersMap = new Map();
 
-    // 🆕 手機掃碼模式狀態變數
+    // 手機掃碼模式狀態變數
     let currentMode = 'report';
     let packOrdersList = [];
     let currentPackOrderIdx = 0;
@@ -648,6 +678,19 @@
       fetchGoogleSheetMapping();
       setupDragAndDrop();
       setupModalKeyboardEvents();
+
+      // 預設將出貨日期設為今天
+      const dateInput = document.getElementById('batch-date-input');
+      if (dateInput) {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${yyyy}-${mm}-${dd}`;
+      }
+
+      // 預先抓取雲端暫存日期清單
+      fetchCloudBatchList();
 
       // 支援網址參數 ?mode=pack 直接開啟手機掃碼模式
       const urlParams = new URLSearchParams(window.location.search);
@@ -668,7 +711,7 @@
     });
 
     /* =========================================================
-       🆕 模式切換邏輯 (彙整列印模式 vs 手機掃碼包裝模式)
+       模式切換邏輯 (彙整列印模式 vs 手機掃碼包裝模式)
     ========================================================= */
     function switchMode(mode) {
       currentMode = mode;
@@ -691,6 +734,7 @@
         } else {
           document.getElementById('pack-upload-prompt').classList.remove('hidden');
           document.getElementById('pack-workspace').classList.add('hidden');
+          fetchCloudBatchList();
         }
       } else {
         packView.classList.add('hidden');
@@ -699,6 +743,137 @@
         tabPackBtn.className = 'flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-1.5';
         stopMobileScanner();
       }
+    }
+
+    function backToDateSelector() {
+      stopMobileScanner();
+      document.getElementById('pack-workspace').classList.add('hidden');
+      document.getElementById('pack-upload-prompt').classList.remove('hidden');
+      fetchCloudBatchList();
+    }
+
+    /* =========================================================
+       獨立暫存試算表 API 讀寫功能 (BATCH_GAS_URL)
+    ========================================================= */
+    function saveBatchToCloud() {
+      if (!packOrdersList || packOrdersList.length === 0) {
+        showToast('請先上傳並解析訂單檔案！', 'error');
+        return;
+      }
+
+      const dateVal = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
+      const label = `${dateVal} (共 ${packOrdersList.length} 筆訂單)`;
+      const btn = document.getElementById('save-cloud-btn');
+
+      // 將包材 Map 轉成一般物件，確保 JSON 序列化後不會遺失資訊
+      const serializableOrders = packOrdersList.map(ord => ({
+        ...ord,
+        pkg: {
+          boxes: Object.fromEntries(ord.pkg.boxes || []),
+          linings: Object.fromEntries(ord.pkg.linings || [])
+        }
+      }));
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 雲端儲存中...';
+
+      fetch(BATCH_GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          batchKey: dateVal,
+          label: label,
+          orders: serializableOrders
+        })
+      })
+      .then(res => res.json())
+      .then(result => {
+        if (result.status === 'success') {
+          showToast(`✅ 已成功儲存「${label}」，手機端可直接選取！`, 'success');
+          fetchCloudBatchList();
+        } else {
+          showToast(`儲存失敗：${result.message}`, 'error');
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        showToast('連線暫存庫失敗，請確認暫存試算表的 Apps Script 已部署為「所有人」存取', 'error');
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = '☁️ 儲存供手機掃碼';
+      });
+    }
+
+    function fetchCloudBatchList() {
+      const selectEl = document.getElementById('cloud-batch-select');
+      if (!selectEl) return;
+
+      selectEl.innerHTML = '<option value="">正在讀取雲端出貨日期...</option>';
+
+      fetch(`${BATCH_GAS_URL}?action=getBatchList`)
+        .then(res => res.json())
+        .then(list => {
+          selectEl.innerHTML = '';
+          if (!list || list.length === 0) {
+            selectEl.innerHTML = '<option value="">尚無已儲存的出貨批次（請先從電腦上傳）</option>';
+            return;
+          }
+          list.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.batchKey;
+            opt.textContent = `${item.label}`;
+            selectEl.appendChild(opt);
+          });
+        })
+        .catch(() => {
+          selectEl.innerHTML = '<option value="">讀取日期清單失敗，請點右側 🔄 重試</option>';
+        });
+    }
+
+    function loadSelectedCloudBatch() {
+      const selectEl = document.getElementById('cloud-batch-select');
+      const batchKey = selectEl?.value;
+      if (!batchKey) {
+        showToast('請先選擇一個有效的出貨日期！', 'warning');
+        return;
+      }
+
+      const btn = document.getElementById('load-batch-btn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 正在從雲端下載訂單明細...';
+
+      fetch(`${BATCH_GAS_URL}?action=getBatchData&key=${encodeURIComponent(batchKey)}`)
+        .then(res => res.json())
+        .then(ordersData => {
+          if (ordersData.error) {
+            showToast(ordersData.error, 'error');
+            return;
+          }
+          // 還原包材 Map 結構
+          packOrdersList = ordersData.map(ord => ({
+            ...ord,
+            pkg: {
+              boxes: new Map(Object.entries(ord.pkg?.boxes || {})),
+              linings: new Map(Object.entries(ord.pkg?.linings || {}))
+            }
+          }));
+
+          currentPackOrderIdx = 0;
+          document.getElementById('pack-upload-prompt').classList.add('hidden');
+          document.getElementById('pack-workspace').classList.remove('hidden');
+          renderPackWorkspace();
+          startMobileScanner();
+          showToast(`已載入 ${batchKey} 共 ${packOrdersList.length} 筆訂單！`, 'success');
+        })
+        .catch(err => {
+          console.error(err);
+          showToast('載入訂單資料失敗，請檢查網路連線', 'error');
+        })
+        .finally(() => {
+          btn.disabled = false;
+          btn.textContent = '🚀 載入此日期訂單並開始掃碼';
+        });
     }
 
     function setupModalKeyboardEvents() {
@@ -803,7 +978,7 @@
       reader.readAsArrayBuffer(file);
     }
 
-    /* ===== 🚀 透過 Apps Script Web App API 讀取 JSON ===== */
+    /* ===== 透過 Apps Script Web App API 讀取主檔對應表 ===== */
     function fetchGoogleSheetMapping() {
       updateSyncUI('loading', '同步線上對應表中...');
 
@@ -1190,7 +1365,7 @@
       lastProcessedDetailSummaryMap = detailSummaryMap;
       lastProcessedOrdersMap = ordersMap;
 
-      // 🆕 同步建立手機掃碼核對用的訂單陣列
+      // 同步建立手機掃碼核對用的訂單陣列
       initPackOrdersData(ordersMap);
 
       renderReport(ordersMap, detailSummaryMap, totalItemRowsCount);
@@ -1300,7 +1475,7 @@
       return fullAddr.replace(/^['’]+/, '');
     }
 
-    // 🆕 計算單筆訂單所需的包裝盒與內襯提示 (直接從 Google Sheet J/K 列抓取)
+    // 計算單筆訂單所需的包裝盒與內襯提示 (直接從 Google Sheet J/K 列抓取)
     function getOrderPackagingSummary(order) {
       const boxes = new Map();
       const linings = new Map();
@@ -1385,7 +1560,7 @@
 
       renderScreenExtraSummary(liningCounts, boxCounts);
 
-      // Render Logic B Cards (🆕 加入訂單條碼 SVG 與包材提示)
+      // Render Logic B Cards (加入訂單條碼 SVG 與包材提示)
       const cardsContainer = document.getElementById('logic-b-cards');
       cardsContainer.innerHTML = '';
 
@@ -1455,7 +1630,7 @@
                 <span class="font-semibold">${escapeHtml(order.name)}</span> · <span class="font-mono">${escapeHtml(order.phone)}</span>
               </div>
             </div>
-            <!-- 🆕 訂單專屬掃描條碼 -->
+            <!-- 訂單專屬掃描條碼 -->
             <div class="text-right shrink-0 bg-white p-1 rounded border border-slate-200 print:border-none">
               <svg id="${barcodeSvgId}" data-barcode="${escapeHtml(cleanBarcodeVal)}"></svg>
             </div>
@@ -1495,7 +1670,7 @@
     }
 
     /* =========================================================
-       🆕 手機掃碼包裝工作站邏輯 (Pack Mode)
+       手機掃碼包裝工作站邏輯 (Pack Mode)
     ========================================================= */
     function initPackOrdersData(ordersMap) {
       packOrdersList = [];
@@ -1650,7 +1825,6 @@
 
     function goToNextUnfinishedOrder() {
       if (packOrdersList.length === 0) return;
-      // 往後尋找下一筆還沒刷滿的訂單
       for (let offset = 1; offset <= packOrdersList.length; offset++) {
         const candidateIdx = (currentPackOrderIdx + offset) % packOrdersList.length;
         const ord = packOrdersList[candidateIdx];
