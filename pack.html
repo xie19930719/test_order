@@ -539,7 +539,7 @@
       </div>
       <div>
         <h2 class="text-base font-bold text-slate-900">選擇出貨日期批次</h2>
-        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取當日訂單，無需手動傳檔案</p>
+        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取當日訂單與已掃描進度</p>
       </div>
 
       <div class="space-y-2.5 text-left">
@@ -567,6 +567,17 @@
     <!-- 已載入訂單後的掃碼主控台 -->
     <div id="pack-workspace" class="hidden space-y-3">
       
+      <!-- 0. 雲端即時存檔狀態列 -->
+      <div class="flex items-center justify-between px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[11px]">
+        <span id="pack-batch-tag" class="font-mono font-bold text-slate-600">批次：-</span>
+        <div class="flex items-center gap-2">
+          <span id="cloud-sync-indicator" class="font-bold text-emerald-700">☁️ 雲端進度已同步</span>
+          <button onclick="syncPackProgressToCloud(true)" class="px-2 py-0.5 bg-white hover:bg-slate-50 border border-slate-300 rounded text-slate-700 font-bold" title="立即手動存回試算表">
+            立即存檔
+          </button>
+        </div>
+      </div>
+
       <!-- 1. 訂單切換選單 (支援缺件暫存跳過與切回) -->
       <div class="jp-card p-3 flex items-center justify-between gap-2 bg-white">
         <select id="pack-order-select" onchange="selectPackOrder(this.value)" class="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-sm font-bold rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono">
@@ -669,6 +680,11 @@
     let currentMode = 'report';
     let packOrdersList = [];
     let currentPackOrderIdx = 0;
+    let currentLoadedBatchKey = ''; // 記錄目前載入的日期代碼 (如 2026-11-16)
+    let cloudSyncTimer = null;      // 防抖背景同步計時器
+    let isSyncingCloud = false;
+    let pendingCloudSync = false;
+
     let html5QrCodeInstance = null;
     let isScannerRunning = false;
     let lastScannedCode = '';
@@ -753,8 +769,28 @@
     }
 
     /* =========================================================
-       獨立暫存試算表 API 讀寫功能 (BATCH_GAS_URL)
+       獨立暫存試算表 API 讀寫與掃碼進度自動回寫功能
     ========================================================= */
+    function serializePackOrders(orders) {
+      return orders.map(ord => ({
+        ...ord,
+        pkg: {
+          boxes: Object.fromEntries(ord.pkg?.boxes || []),
+          linings: Object.fromEntries(ord.pkg?.linings || [])
+        }
+      }));
+    }
+
+    function computeBatchLabel(batchKey, orders) {
+      const totalOrders = orders.length;
+      const doneOrders = orders.filter(o => o.items.length > 0 && o.items.every(i => i.scanned >= i.qty)).length;
+      if (doneOrders > 0) {
+        return `${batchKey} (已完成 ${doneOrders}/${totalOrders} 筆)`;
+      }
+      return `${batchKey} (共 ${totalOrders} 筆訂單)`;
+    }
+
+    // 電腦端初次儲存出貨批次
     function saveBatchToCloud() {
       if (!packOrdersList || packOrdersList.length === 0) {
         showToast('請先上傳並解析訂單檔案！', 'error');
@@ -762,17 +798,9 @@
       }
 
       const dateVal = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
-      const label = `${dateVal} (共 ${packOrdersList.length} 筆訂單)`;
+      currentLoadedBatchKey = dateVal;
+      const label = computeBatchLabel(dateVal, packOrdersList);
       const btn = document.getElementById('save-cloud-btn');
-
-      // 將包材 Map 轉成一般物件，確保 JSON 序列化後不會遺失資訊
-      const serializableOrders = packOrdersList.map(ord => ({
-        ...ord,
-        pkg: {
-          boxes: Object.fromEntries(ord.pkg.boxes || []),
-          linings: Object.fromEntries(ord.pkg.linings || [])
-        }
-      }));
 
       btn.disabled = true;
       btn.textContent = '⏳ 雲端儲存中...';
@@ -783,7 +811,7 @@
         body: JSON.stringify({
           batchKey: dateVal,
           label: label,
-          orders: serializableOrders
+          orders: serializePackOrders(packOrdersList)
         })
       })
       .then(res => res.json())
@@ -802,6 +830,96 @@
       .finally(() => {
         btn.disabled = false;
         btn.textContent = '☁️ 儲存供手機掃碼';
+      });
+    }
+
+    // 手機端掃碼後：排程自動背景同步進度至 Google 暫存試算表
+    function scheduleCloudProgressSync(immediate = false) {
+      if (!currentLoadedBatchKey) {
+        currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
+      }
+
+      const indicator = document.getElementById('cloud-sync-indicator');
+      if (indicator) {
+        indicator.className = 'font-bold text-amber-600';
+        indicator.textContent = '⏳ 準備寫入雲端...';
+      }
+
+      if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+
+      if (immediate) {
+        syncPackProgressToCloud(false);
+      } else {
+        // 停手 2.5 秒後自動合併回寫，避免連續掃條碼時塞車
+        cloudSyncTimer = setTimeout(() => {
+          syncPackProgressToCloud(false);
+        }, 2500);
+      }
+    }
+
+    // 執行寫入 Google 暫存試算表
+    function syncPackProgressToCloud(showManualToast = false) {
+      if (!packOrdersList || packOrdersList.length === 0) return;
+      if (!currentLoadedBatchKey) {
+        currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
+      }
+
+      if (isSyncingCloud) {
+        pendingCloudSync = true;
+        return;
+      }
+
+      isSyncingCloud = true;
+      pendingCloudSync = false;
+
+      const indicator = document.getElementById('cloud-sync-indicator');
+      if (indicator) {
+        indicator.className = 'font-bold text-indigo-600 animate-pulse';
+        indicator.textContent = '🔄 寫入試算表中...';
+      }
+
+      const label = computeBatchLabel(currentLoadedBatchKey, packOrdersList);
+
+      fetch(BATCH_GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          batchKey: currentLoadedBatchKey,
+          label: label,
+          orders: serializePackOrders(packOrdersList)
+        })
+      })
+      .then(res => res.json())
+      .then(result => {
+        if (result.status === 'success') {
+          const nowTime = new Date().toTimeString().slice(0, 5);
+          if (indicator) {
+            indicator.className = 'font-bold text-emerald-700';
+            indicator.textContent = `☁️ 已寫入試算表 (${nowTime})`;
+          }
+          if (showManualToast) {
+            showToast(`✅ 掃碼進度已寫入 Google 暫存試算表！`, 'success');
+          }
+        } else {
+          if (indicator) {
+            indicator.className = 'font-bold text-rose-600';
+            indicator.textContent = '⚠️ 雲端寫入失敗';
+          }
+          if (showManualToast) showToast(`寫入失敗：${result.message}`, 'error');
+        }
+      })
+      .catch(() => {
+        if (indicator) {
+          indicator.className = 'font-bold text-rose-600';
+          indicator.textContent = '⚠️ 網路異常未同步';
+        }
+        if (showManualToast) showToast('連線 Google 暫存試算表失敗，請檢查網路', 'error');
+      })
+      .finally(() => {
+        isSyncingCloud = false;
+        if (pendingCloudSync) {
+          syncPackProgressToCloud(false);
+        }
       });
     }
 
@@ -841,7 +959,7 @@
 
       const btn = document.getElementById('load-batch-btn');
       btn.disabled = true;
-      btn.textContent = '⏳ 正在從雲端下載訂單明細...';
+      btn.textContent = '⏳ 正在從雲端下載訂單與進度...';
 
       fetch(`${BATCH_GAS_URL}?action=getBatchData&key=${encodeURIComponent(batchKey)}`)
         .then(res => res.json())
@@ -850,7 +968,8 @@
             showToast(ordersData.error, 'error');
             return;
           }
-          // 還原包材 Map 結構
+          currentLoadedBatchKey = batchKey;
+          // 還原包材 Map 結構與已儲存的 scanned 數量
           packOrdersList = ordersData.map(ord => ({
             ...ord,
             pkg: {
@@ -859,7 +978,21 @@
             }
           }));
 
-          currentPackOrderIdx = 0;
+          // 自動跳轉到第一筆「尚未包裝完成」的訂單
+          const firstUnfinishedIdx = packOrdersList.findIndex(
+            o => o.items.some(i => i.scanned < i.qty)
+          );
+          currentPackOrderIdx = firstUnfinishedIdx !== -1 ? firstUnfinishedIdx : 0;
+
+          const batchTag = document.getElementById('pack-batch-tag');
+          if (batchTag) batchTag.textContent = `批次：${batchKey}`;
+
+          const indicator = document.getElementById('cloud-sync-indicator');
+          if (indicator) {
+            indicator.className = 'font-bold text-emerald-700';
+            indicator.textContent = '☁️ 雲端進度已同步';
+          }
+
           document.getElementById('pack-upload-prompt').classList.add('hidden');
           document.getElementById('pack-workspace').classList.remove('hidden');
           renderPackWorkspace();
@@ -1704,8 +1837,11 @@
       });
 
       currentPackOrderIdx = 0;
+      currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
 
       if (currentMode === 'pack' && packOrdersList.length > 0) {
+        const batchTag = document.getElementById('pack-batch-tag');
+        if (batchTag) batchTag.textContent = `批次：${currentLoadedBatchKey}`;
         document.getElementById('pack-upload-prompt').classList.add('hidden');
         document.getElementById('pack-workspace').classList.remove('hidden');
         renderPackWorkspace();
@@ -1852,7 +1988,7 @@
       input.value = '';
     }
 
-    // 核心掃碼判斷：自動區分「訂單編號條碼」或「商品型號 SKU 條碼」
+    // 核心掃碼判斷：自動區分「訂單編號條碼」或「商品型號 SKU 條碼」，並自動寫入暫存試算表
     function processPackBarcode(rawCode) {
       const code = normalizeKey(rawCode);
       const cleanOrderCode = code.replace(/^#/, '');
@@ -1897,10 +2033,14 @@
 
       if (isOrderComplete) {
         playFeedbackTone('complete');
+        // 整筆訂單包裝完成時，立刻回寫至 Google 暫存試算表
+        scheduleCloudProgressSync(true);
       } else {
         playFeedbackTone('success');
         banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-emerald-100 border border-emerald-400 text-emerald-900';
         banner.textContent = `✅ 正確：${matchedItem.detailName} (${matchedItem.scanned}/${matchedItem.qty})`;
+        // 單品掃碼時，排程 2.5 秒防抖背景回寫至 Google 暫存試算表
+        scheduleCloudProgressSync(false);
       }
 
       renderPackWorkspace();
