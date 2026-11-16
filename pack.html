@@ -679,20 +679,51 @@
     /* ===== 2. 獨立出貨暫存庫 Apps Script 網址 ===== */
     const BATCH_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQ7eWzVPfViCmQ2qvYyf1A4X8nc5wDbZxR91thfrKvJysgD5OcmPa8PTj8Zai5vL3z/exec';
 
-    /* ===== 3. 自訂專屬掃碼音效檔設定（放在同一個網頁資料夾即可所有手機共用） ===== */
+    /* ===== 3. 自訂專屬掃碼音效檔設定（放在與 pack.html 同一資料夾即可所有手機共用） ===== */
     const CUSTOM_SOUNDS = {
-      success: '64答對3.mp3',        // 掃描正確
-      error: '65答錯.mp3',           // 掃描失敗 / 拿錯 / 數量已滿
-      complete: '68小朋友歡呼聲.mp3' // 整筆訂單完成
+      success: '64答對3.mp3?v=2',        // 掃描正確
+      error: '65答錯.mp3?v=2',           // 掃描失敗 / 拿錯 / 數量已滿
+      complete: '68小朋友歡呼聲.mp3?v=2' // 整筆訂單完成
     };
 
     const preloadedAudioMap = {};
+    let isMobileAudioUnlocked = false;
+
     Object.entries(CUSTOM_SOUNDS).forEach(([key, src]) => {
       try {
-        const audio = new Audio(src);
+        const audio = new Audio(encodeURI(src));
         audio.preload = 'auto';
+        audio.load();
         preloadedAudioMap[key] = audio;
       } catch (e) {}
+    });
+
+    // 手機瀏覽器必須在第一次點擊螢幕時「解鎖」外部音檔，後續相機自動掃描才不會被擋下
+    function unlockCustomAudioOnGesture() {
+      if (isMobileAudioUnlocked) return;
+      isMobileAudioUnlocked = true;
+      Object.values(preloadedAudioMap).forEach(audio => {
+        try {
+          const prevMuted = audio.muted;
+          audio.muted = true;
+          const p = audio.play();
+          if (p !== undefined) {
+            p.then(() => {
+              audio.pause();
+              audio.currentTime = 0;
+              audio.muted = prevMuted;
+            }).catch(() => {
+              audio.muted = prevMuted;
+            });
+          } else {
+            audio.muted = prevMuted;
+          }
+        } catch (e) {}
+      });
+    }
+
+    ['touchstart', 'pointerdown', 'click'].forEach(evt => {
+      document.addEventListener(evt, unlockCustomAudioOnGesture, { passive: true });
     });
 
     let modelToDetailMap = new Map();
@@ -795,7 +826,6 @@
     /* =========================================================
        個資去識別化遮蔽工具函式 (用於雲端暫存與手機掃碼顯示)
     ========================================================= */
-    // 電話僅保留末三碼（例如 0912345678 -> *******678）
     function maskPhoneLastThree(phone) {
       const str = cleanStr(phone);
       if (!str || str === '-') return '-';
@@ -805,7 +835,6 @@
       return '*'.repeat(digits.length - 3) + digits.slice(-3);
     }
 
-    // 姓名遮蔽中間字元（例如 王小明 -> 王*明 / 陳大 -> 陳*）
     function maskRecipientName(name) {
       const str = cleanStr(name);
       if (!str || str === '-') return '-';
@@ -816,7 +845,6 @@
       return `${chars[0]}${'*'.repeat(chars.length - 2)}${chars[chars.length - 1]}`;
     }
 
-    // 地址去識別化（僅保留縣市/行政區，隱藏門牌號碼）
     function maskRecipientAddress(addr) {
       const str = cleanStr(addr);
       if (!str || str === '-') return '-';
@@ -838,6 +866,7 @@
       const tabPackBtn = document.getElementById('tab-pack-btn');
 
       if (mode === 'pack') {
+        unlockCustomAudioOnGesture();
         reportView.classList.add('hidden');
         packView.classList.remove('hidden');
         tabPackBtn.className = 'flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white shadow-sm transition-all flex items-center justify-center gap-1.5';
@@ -1062,6 +1091,7 @@
     }
 
     function loadSelectedCloudBatch() {
+      unlockCustomAudioOnGesture();
       const selectEl = document.getElementById('cloud-batch-select');
       const batchKey = selectEl?.value;
       if (!batchKey) {
@@ -2096,7 +2126,6 @@
       processPackBarcode(ord.items[itemIdx].model);
     }
 
-    // 誤觸扣回 1 件
     function manualDecrementItem(itemIdx) {
       const ord = packOrdersList[currentPackOrderIdx];
       if (!ord || !ord.items[itemIdx]) return;
@@ -2119,7 +2148,6 @@
       input.value = '';
     }
 
-    // 核心掃碼判斷：自動區分「訂單編號條碼」或「商品型號 SKU 條碼」，並自動寫入暫存試算表
     function processPackBarcode(rawCode) {
       const code = normalizeKey(rawCode);
       const cleanOrderCode = code.replace(/^#/, '');
@@ -2181,11 +2209,15 @@
       const customAudio = preloadedAudioMap[type];
       if (customAudio) {
         try {
+          customAudio.muted = false;
           customAudio.pause();
           customAudio.currentTime = 0;
           const playPromise = customAudio.play();
           if (playPromise !== undefined) {
-            playPromise.catch(() => playSynthFallbackTone(type));
+            playPromise.catch((err) => {
+              console.warn('Custom audio play blocked/failed, using fallback:', err);
+              playSynthFallbackTone(type);
+            });
           }
           return;
         } catch (e) {}
@@ -2290,24 +2322,20 @@
           const now = Date.now();
           const normCode = normalizeKey(decodedText);
 
-          // 維持同條碼未移開鏡頭鎖定計時
           if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
           clearAbsenceTimer = setTimeout(() => {
             activeHeldCode = '';
             updateCameraPromptText();
           }, 800);
 
-          // 1. 仍在 3 秒全局冷卻時間內，直接略過
           if (now < scanCooldownUntil) {
             return;
           }
 
-          // 2. 即使超過 3 秒，若同一個商品根本沒移開鏡頭，也不重複計算
           if (normCode === activeHeldCode) {
             return;
           }
 
-          // 允許掃入！啟動 3 秒冷卻倒數與移開鎖定
           activeHeldCode = normCode;
           scanCooldownUntil = now + SCAN_COOLDOWN_MS;
           updateCameraPromptText();
@@ -2346,6 +2374,7 @@
     }
 
     function toggleScanner() {
+      unlockCustomAudioOnGesture();
       stopMobileScanner();
       setTimeout(() => startMobileScanner(), 300);
     }
