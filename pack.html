@@ -605,7 +605,7 @@
         <div id="pack-adjustment-alert" class="hidden bg-amber-50 border border-amber-300 text-amber-900 text-xs p-2 rounded-lg font-medium"></div>
       </div>
 
-      <!-- 3. 手機相機掃描框（含防連發移開鎖定提示） -->
+      <!-- 3. 手機相機掃描框（含 3 秒冷卻倒數 + 移開鏡頭雙重防誤觸） -->
       <div class="bg-black rounded-xl overflow-hidden border-2 border-slate-300 relative shadow-inner">
         <div id="qr-reader" class="w-full"></div>
         <div id="camera-control-bar" class="bg-slate-900 p-2 flex justify-between items-center text-xs text-slate-300">
@@ -685,11 +685,14 @@
     let isSyncingCloud = false;
     let pendingCloudSync = false;
 
-    // 鏡頭與防誤觸（移開解鎖）狀態變數
+    // 鏡頭與防誤觸（3秒全局冷卻 + 移開鏡頭雙重鎖定）狀態變數
+    const SCAN_COOLDOWN_MS = 3000;   // 每 3 秒只能掃描一件
     let html5QrCodeInstance = null;
     let isScannerRunning = false;
-    let activeHeldCode = '';        // 目前停留在鏡頭前已掃過的條碼（未移開前鎖定）
-    let clearAbsenceTimer = null;   // 偵測條碼已離開鏡頭的解鎖計時器
+    let scanCooldownUntil = 0;       // 冷卻解除的時間戳記
+    let cooldownCountdownTimer = null;
+    let activeHeldCode = '';         // 目前停留在鏡頭前已掃過的條碼（未移開前鎖定）
+    let clearAbsenceTimer = null;    // 偵測條碼已離開鏡頭的解鎖計時器
 
     window.addEventListener('DOMContentLoaded', () => {
       fetchGoogleSheetMapping();
@@ -2098,7 +2101,26 @@
       } catch (e) {}
     }
 
-    // 啟動相機掃描器（含「物理防連發移開鎖定」機制）
+    // 更新相機狀態文字（結合 3 秒冷卻倒數與移開提示）
+    function updateCameraPromptText() {
+      const statusText = document.getElementById('camera-status-text');
+      if (!statusText || !isScannerRunning) return;
+
+      const remainingMs = scanCooldownUntil - Date.now();
+      if (remainingMs > 0) {
+        const sec = (remainingMs / 1000).toFixed(1);
+        statusText.className = 'font-semibold text-amber-300 font-mono';
+        statusText.textContent = `⏳ 冷卻防誤觸 (${sec}s) · 請移開商品`;
+      } else if (activeHeldCode) {
+        statusText.className = 'font-semibold text-amber-300';
+        statusText.textContent = '🔒 請將已掃商品移開鏡頭再掃下一件';
+      } else {
+        statusText.className = 'font-semibold text-emerald-400';
+        statusText.textContent = '🟢 鏡頭就緒，請掃描商品條碼';
+      }
+    }
+
+    // 啟動相機掃描器（每 3 秒只能掃一件 + 未移開鏡頭鎖定）
     function startMobileScanner() {
       if (isScannerRunning) return;
       const statusText = document.getElementById('camera-status-text');
@@ -2107,45 +2129,54 @@
       }
 
       activeHeldCode = '';
+      scanCooldownUntil = 0;
       if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
+      if (cooldownCountdownTimer) clearInterval(cooldownCountdownTimer);
 
       html5QrCodeInstance.start(
         { facingMode: "environment" },
         { fps: 12, qrbox: { width: 250, height: 110 }, aspectRatio: 1.777778 },
         (decodedText) => {
+          const now = Date.now();
           const normCode = normalizeKey(decodedText);
 
-          // 只要鏡頭中仍持續看到同一個條碼，就延後解鎖時間，絕不重複計算！
+          // 維持同條碼未移開鏡頭鎖定計時
           if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
           clearAbsenceTimer = setTimeout(() => {
             activeHeldCode = '';
-            if (statusText && isScannerRunning) {
-              statusText.className = 'font-semibold text-emerald-400';
-              statusText.textContent = '🟢 鏡頭就緒，請掃描下一件商品';
-            }
-          }, 850); // 必須離開鏡頭超過 0.85 秒才會解除鎖定
+            updateCameraPromptText();
+          }, 800);
 
+          // 1. 仍在 3 秒全局冷卻時間內，直接略過
+          if (now < scanCooldownUntil) {
+            return;
+          }
+
+          // 2. 即使超過 3 秒，若同一個商品根本沒移開鏡頭，也不重複計算
           if (normCode === activeHeldCode) {
-            return; // 尚未移開鏡頭，直接略過防誤觸
+            return;
           }
 
-          // 首次掃到此商品：鎖定條碼並執行核對
+          // 允許掃入！啟動 3 秒冷卻倒數與移開鎖定
           activeHeldCode = normCode;
-          if (statusText) {
-            statusText.className = 'font-semibold text-amber-300';
-            statusText.textContent = '🔒 已掃入！請將商品移開鏡頭再掃下一件';
-          }
+          scanCooldownUntil = now + SCAN_COOLDOWN_MS;
+          updateCameraPromptText();
+
+          if (cooldownCountdownTimer) clearInterval(cooldownCountdownTimer);
+          cooldownCountdownTimer = setInterval(() => {
+            if (Date.now() >= scanCooldownUntil) {
+              clearInterval(cooldownCountdownTimer);
+              cooldownCountdownTimer = null;
+            }
+            updateCameraPromptText();
+          }, 150);
+
           processPackBarcode(decodedText);
         },
-        () => {
-          // 當前畫面沒偵測到條碼時，交由 clearAbsenceTimer 倒數解鎖
-        }
+        () => {}
       ).then(() => {
         isScannerRunning = true;
-        if (statusText) {
-          statusText.className = 'font-semibold text-emerald-400';
-          statusText.textContent = '🟢 鏡頭就緒，請掃描商品條碼';
-        }
+        updateCameraPromptText();
       }).catch(() => {
         isScannerRunning = false;
         if (statusText) statusText.textContent = '⚠️ 無法開啟鏡頭（請確認 HTTPS 與權限，或用藍牙槍）';
@@ -2154,7 +2185,9 @@
 
     function stopMobileScanner() {
       activeHeldCode = '';
+      scanCooldownUntil = 0;
       if (clearAbsenceTimer) clearTimeout(clearAbsenceTimer);
+      if (cooldownCountdownTimer) clearInterval(cooldownCountdownTimer);
       if (html5QrCodeInstance && isScannerRunning) {
         html5QrCodeInstance.stop().then(() => {
           isScannerRunning = false;
