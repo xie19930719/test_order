@@ -1,342 +1,2297 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-TW" class="h-full bg-slate-50">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>行動包裝核對系統</title>
-  <!-- 引入 html5-qrcode 套件 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>黑柳徹 Shopify 訂單彙整與掃碼包裝工具</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- SheetJS (xlsx) CDN for Excel parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- JsBarcode CDN for generating Order Barcodes -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+
+  <!-- html5-qrcode CDN for Mobile Camera Scanning -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+  <!-- Google Fonts: Noto Sans TC & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+
   <style>
-    :root {
-      --bg: #f5f5f4;
-      --card: #ffffff;
-      --text: #1c1917;
-      --muted: #78716c;
-      --border: #e7e5e4;
-      --primary: #292524;
-      --success: #16a34a;
-      --success-bg: #dcfce7;
-      --error: #dc2626;
-      --error-bg: #fee2e2;
+    body {
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif; }
-    body { background: var(--bg); color: var(--text); padding: 16px; max-width: 500px; margin: 0 auto; }
-
-    /* 頂部訂單資訊與箱型提示 */
-    .header-card {
-      background: var(--card); border-radius: 12px; padding: 16px;
-      border: 1px solid var(--border); margin-bottom: 12px;
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .order-id { font-size: 18px; font-weight: 700; }
-    .customer-name { font-size: 13px; color: var(--muted); margin-top: 2px; }
-    .box-badge {
-      background: #fef3c7; color: #b45309; font-weight: 700;
-      padding: 6px 12px; border-radius: 8px; font-size: 14px; border: 1px solid #fde68a;
+    svg {
+      display: inline-block !important;
+      vertical-align: middle;
+      flex-shrink: 0 !important;
+      max-width: 100%;
     }
 
-    /* 相機掃描區塊 */
-    .scanner-box {
-      background: #000; border-radius: 12px; overflow: hidden;
-      position: relative; margin-bottom: 12px; border: 2px solid var(--border);
+    .jp-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.03), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+      border-radius: 0.75rem;
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
     }
-    #reader { width: 100%; }
     
-    /* 狀態提示橫幅 */
-    .status-banner {
-      padding: 12px; border-radius: 10px; text-align: center;
-      font-weight: 600; font-size: 15px; margin-bottom: 12px;
-      background: var(--card); border: 1px solid var(--border);
-      transition: all 0.2s;
-    }
-    .status-banner.success { background: var(--success-bg); color: var(--success); border-color: #86efac; }
-    .status-banner.error { background: var(--error-bg); color: var(--error); border-color: #fca5a5; }
-    .status-banner.complete { background: var(--success); color: #fff; font-size: 17px; }
-
-    /* 手動 / 藍牙槍備用輸入框 */
-    .manual-input-group { display: flex; gap: 8px; margin-bottom: 16px; }
-    .manual-input-group input {
-      flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
-      font-size: 15px; background: var(--card);
-    }
-    .manual-input-group button {
-      padding: 10px 16px; border-radius: 8px; border: none;
-      background: var(--primary); color: #fff; font-weight: 600; cursor: pointer;
+    .jp-card:hover {
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
     }
 
-    /* 商品明細清單 */
-    .item-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
-    .item-card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-      padding: 14px; display: flex; justify-content: space-between; align-items: center;
-      transition: all 0.2s;
-    }
-    .item-card.done { background: var(--success-bg); border-color: #86efac; opacity: 0.85; }
-    .item-info { flex: 1; }
-    .item-name { font-weight: 600; font-size: 15px; }
-    .item-sku { font-size: 13px; color: var(--muted); font-family: monospace; margin-top: 3px; }
-    .item-count {
-      font-size: 18px; font-weight: 700; min-width: 65px; text-align: right;
-    }
-    .item-card.done .item-count { color: var(--success); }
+    /* Media Print Optimization Rules */
+    @media print {
+      body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        font-size: 10pt;
+      }
 
-    /* 底部切換訂單按鈕 */
-    .controls { display: flex; gap: 10px; }
-    .btn-next {
-      width: 100%; padding: 14px; border-radius: 10px; border: none;
-      background: var(--primary); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer;
+      .no-print {
+        display: none !important;
+      }
+
+      .print-only {
+        display: block !important;
+      }
+
+      .print-container {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+      }
+
+      body:not(.printing-a5) .a5-print-container {
+        display: none !important;
+      }
+
+      body.printing-a5 .print-container,
+      body.printing-a5 header,
+      body.printing-a5 footer,
+      body.printing-a5 #toast-container,
+      body.printing-a5 #mapping-modal,
+      body.printing-a5 #gemini-modal,
+      body.printing-a5 main {
+        display: none !important;
+      }
+
+      body.printing-a5 .a5-print-container {
+        display: block !important;
+        width: 297mm !important;
+        box-sizing: border-box !important;
+        font-family: 'Noto Sans TC', sans-serif !important;
+        background: #fff !important;
+      }
+
+      .print-card {
+        border: 1px solid #333333 !important;
+        border-radius: 2px !important;
+        margin-bottom: 10px !important;
+        padding: 8px 12px !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        background-color: #ffffff !important;
+      }
+
+      .print-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .print-table th, 
+      .print-table td {
+        border: 1px solid #000000 !important;
+        padding: 5px 8px !important;
+        color: #000000 !important;
+      }
+
+      .print-table th {
+        background-color: #f1f5f9 !important;
+        font-weight: 700;
+      }
+
+      @page {
+        size: A4 portrait;
+        margin: 8mm;
+      }
     }
-    .btn-next:disabled { background: #d6d3d1; cursor: not-allowed; }
+
+    @media screen {
+      .print-only,
+      .a5-print-container {
+        display: none !important;
+      }
+    }
+
+    /* Custom A5 dynamic printing helper styles */
+    .a5-page-wrapper {
+      display: flex;
+      width: 297mm;
+      height: 210mm;
+      position: relative;
+      box-sizing: border-box;
+      background: #fff;
+      font-family: 'Noto Sans TC', sans-serif;
+      page-break-after: always;
+      break-after: page;
+    }
+    .a5-page-wrapper:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .a5-box-half {
+      width: 148.5mm;
+      height: 210mm;
+      padding: 8mm 10mm;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+    .a5-box-inner {
+      border: 2px solid #000;
+      padding: 10px;
+      height: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+    .a5-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #000;
+    }
+    .a5-table th {
+      background-color: #e2e8f0;
+      border-bottom: 1px solid #000;
+      padding: 4px 6px;
+      font-size: 10pt;
+    }
+    .a5-table td {
+      border-bottom: 1px solid #000;
+      padding: 2px 4px;
+    }
   </style>
 </head>
-<body>
+<body class="min-h-full flex flex-col text-slate-800 bg-slate-50 antialiased">
 
-  <!-- 1. 訂單資訊 -->
-  <div class="header-card">
-    <div>
-      <div class="order-id" id="orderId">#1001</div>
-      <div class="customer-name" id="customerInfo">王小明 · 7-11 取貨</div>
+  <!-- Toast Container -->
+  <div id="toast-container" aria-live="polite" aria-atomic="true" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full"></div>
+
+  <!-- Manual Mapping Modal -->
+  <div id="mapping-modal" role="dialog" aria-modal="true" aria-labelledby="mapping-modal-title" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h3 id="mapping-modal-title" class="font-bold text-slate-900 text-base flex items-center gap-2">
+          <svg width="20" height="20" class="w-5 h-5 text-slate-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+          </svg>
+          對應表設定 (手動備援模式)
+        </h3>
+        <button onclick="closeMappingModal()" aria-label="關閉視窗" class="text-slate-400 hover:text-slate-600 focus:outline-none rounded-lg p-1 font-bold text-lg">&times;</button>
+      </div>
+      <p class="text-xs text-slate-600 leading-relaxed">
+        如自動連線 Google 試算表失敗，您可以透過上傳檔案進行手動設定：
+      </p>
+      <div class="space-y-4">
+        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+          <span class="text-xs font-bold text-slate-800 block">上傳對應表檔 (.xlsx / .csv)</span>
+          <p class="text-[11px] text-slate-500">上傳含有「型號」與「細目」欄位的 Excel / CSV 對應表檔。</p>
+          <input type="file" id="mapping-file-input" accept=".xlsx, .xls, .csv" onchange="handleMappingFileUpload(event)" class="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300 cursor-pointer">
+        </div>
+      </div>
     </div>
-    <div class="box-badge" id="boxType">建議：M 號箱</div>
   </div>
 
-  <!-- 2. 相機掃描器 -->
-  <div class="scanner-box">
-    <div id="reader"></div>
+  <!-- Gemini AI Address Modal -->
+  <div id="gemini-modal" role="dialog" aria-modal="true" aria-labelledby="gemini-modal-title" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-xl w-full p-6 space-y-5 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h3 id="gemini-modal-title" class="font-bold text-slate-900 text-base flex items-center gap-2">
+          <svg width="20" height="20" class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+          </svg>
+          AI 地址智慧校對 & 驗證 (Gemini)
+        </h3>
+        <button onclick="closeGeminiAddressModal()" aria-label="關閉視窗" class="text-slate-400 hover:text-slate-600 focus:outline-none rounded-lg p-1 font-bold text-lg">&times;</button>
+      </div>
+
+      <div class="bg-indigo-50/80 border border-indigo-100 rounded-lg p-3.5 text-xs text-indigo-900 space-y-1">
+        <p class="font-bold flex items-center gap-1.5">💡 Gemini 智慧地址校對說明：</p>
+        <p class="leading-relaxed text-indigo-800">
+          透過 AI 檢查訂單地址是否有缺漏縣市/鄉鎮區、郵遞區號錯誤或門牌不完整等問題。
+        </p>
+      </div>
+
+      <div class="space-y-2.5 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+        <p class="font-bold text-slate-800 text-xs uppercase">📋 簡易操作 3 步驟：</p>
+        <ol class="space-y-2 text-slate-600 list-decimal pl-4">
+          <li class="leading-relaxed">點擊下方按鈕：下載 <code class="bg-slate-200 px-1 rounded font-mono">待校對地址清單.xlsx</code> 並複製提示詞。</li>
+          <li class="leading-relaxed">開啟 Gemini 網頁並點擊 <span class="font-bold text-indigo-700">+</span> 上傳檔案。</li>
+          <li class="leading-relaxed">按 <kbd class="px-1 bg-white border rounded font-mono">Ctrl + V</kbd> 貼上指令送出分析。</li>
+        </ol>
+      </div>
+
+      <button onclick="exportAddressCheckAndOpenGemini()" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-1">
+        <span class="flex items-center gap-2 text-base">🚀 匯出 Excel 並跳轉 Gemini 網頁</span>
+        <span class="text-[11px] font-normal text-indigo-200">自動複製 Prompt 指令 ➔ 下載檢核檔 ➔ 開啟 Gemini 網頁</span>
+      </button>
+    </div>
   </div>
 
-  <!-- 3. 掃描狀態回饋 -->
-  <div class="status-banner" id="statusBanner">請將商品 SKU 條碼對準鏡頭</div>
+  <header class="no-print bg-slate-900 text-white shadow-md border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 sm:h-16 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 bg-indigo-600 border border-indigo-500 rounded-lg flex items-center justify-center font-bold text-white text-lg shadow-inner">
+          單
+        </div>
+        <div>
+          <h1 class="font-bold text-sm sm:text-base tracking-wide text-slate-100">黑柳徹 Shopify 訂單彙整工具</h1>
+          <p class="text-[11px] text-slate-400 hidden sm:block">自動跨檔比對品項細目 ➔ 生成極速核對與掃碼包裝</p>
+        </div>
+      </div>
 
-  <!-- 4. 藍牙條碼槍 / 手動備用輸入 -->
-  <div class="manual-input-group">
-    <input type="text" id="manualSku" placeholder="刷不過？可手動輸入或用藍牙槍刷入" />
-    <button onclick="handleManualSubmit()">確認</button>
+      <!-- 🆕 模式切換按鈕列 -->
+      <div class="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700 order-3 sm:order-2 w-full sm:w-auto justify-center">
+        <button id="tab-report-btn" onclick="switchMode('report')" class="flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white shadow-sm transition-all">
+          📊 訂單彙整與列印
+        </button>
+        <button id="tab-pack-btn" onclick="switchMode('pack')" class="flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-1.5">
+          <span>📱 手機掃碼包裝模式</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2 order-2 sm:order-3">
+        <button onclick="openMappingModal()" id="status-badge" class="flex items-center gap-2 bg-slate-800/90 hover:bg-slate-800 text-xs px-2.5 py-1.5 rounded-full border border-slate-700">
+          <span id="status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span id="status-text" class="text-slate-300 font-medium text-[11px]">連線試算表中...</span>
+        </button>
+
+        <button onclick="fetchGoogleSheetMapping()" title="重新同步對應表" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700">
+          <svg width="16" height="16" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+        </button>
+
+        <button onclick="openMappingModal()" title="設定對應表" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700">
+          <svg width="16" height="16" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- =========================================================
+       模式一：原本的「訂單彙整與列印」主畫面
+  ========================================================= -->
+  <main id="report-mode-view" class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+    <!-- Upload & Action Cards Section -->
+    <section class="no-print grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- 1. File Upload Box -->
+      <div class="jp-card p-6 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+              <svg width="16" height="16" class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+              </svg>
+              上傳 Excel / CSV 訂單檔案
+            </h2>
+            <span class="text-xs text-slate-400 font-mono">自動對應欄位</span>
+          </div>
+
+          <label class="border-2 border-dashed border-slate-300 hover:border-indigo-600 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all bg-slate-50/50 hover:bg-indigo-50/30 group">
+            <input type="file" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
+            <div class="w-12 h-12 rounded-full bg-slate-100 group-hover:bg-indigo-100 text-slate-600 group-hover:text-indigo-600 flex items-center justify-center mb-3 transition-colors">
+              <svg width="24" height="24" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+            </div>
+            <p id="upload-label" class="text-xs font-semibold text-slate-700 text-center mb-1 group-hover:text-indigo-700">
+              拖曳 Excel / CSV 檔案至此，或點擊選擇檔案
+            </p>
+            <p class="text-[11px] text-slate-400 text-center">支援由 Shopify / 蝦皮匯出之 orders_export 試算表及 CSV 檔</p>
+          </label>
+        </div>
+
+        <div id="file-info-bar" class="hidden mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-800">
+          <div class="flex items-center gap-2 truncate">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+            <span id="file-name-text" class="font-bold truncate">orders.xlsx</span>
+          </div>
+          <span id="file-stats-text" class="font-mono text-[11px] text-emerald-600 shrink-0 ml-2">已載入</span>
+        </div>
+      </div>
+
+      <!-- 2. A5 Print Card -->
+      <div class="jp-card p-6 flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <svg width="16" height="16" class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 000-4h-6a2 2 0 000 4zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+            </svg>
+            A5 出貨彙整模組
+          </h2>
+          <p class="text-xs text-slate-500 leading-relaxed mb-3">
+            解析訂單後，可快速產生 A5 尺寸品項對裁清單，末頁自動加附內襯與包裝盒統計。
+          </p>
+
+          <div class="space-y-2 bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
+            <div class="flex items-center gap-2">
+              <input type="checkbox" id="exclude-tk-checkbox" class="w-4 h-4 text-slate-800 rounded border-slate-300 focus:ring-slate-700 cursor-pointer">
+              <label for="exclude-tk-checkbox" class="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                列印時排除配件 (型號開頭為 TK)
+              </label>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="checkbox" id="exclude-nomodel-checkbox" class="w-4 h-4 text-slate-800 rounded border-slate-300 focus:ring-slate-700 cursor-pointer">
+              <label for="exclude-nomodel-checkbox" class="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                列印時排除無型號品項
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button onclick="printA5Summary()" class="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-bold text-sm rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 border border-slate-800">
+          <svg width="16" height="16" class="w-4 h-4 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 000-4h-6a2 2 0 000 4zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+          </svg>
+          列印出貨彙整 (A5)
+        </button>
+      </div>
+
+      <!-- 3. Hsinchu Export & AI Modal Card -->
+      <div class="jp-card p-6 flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <svg width="16" height="16" class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.172a1 1 0 00.707-.293l2.414-2.414a1 1 0 01.707-.293H20"></path>
+            </svg>
+            新竹物流託運單匯出
+          </h2>
+          <p class="text-xs text-slate-500 leading-relaxed mb-3">
+            轉換收件人資訊為新竹物流託運單標準 12 欄位格式。
+          </p>
+
+          <div class="mb-4 p-2.5 bg-emerald-50/60 border border-emerald-200/80 rounded-lg text-xs text-emerald-800 space-y-1">
+            <div class="flex items-center gap-1.5 font-semibold">
+              <svg width="14" height="14" class="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              自動合併地址與格式化電話
+            </div>
+            <p class="text-[11px] text-emerald-700 leading-tight">符合物流中心直接匯入規範。</p>
+          </div>
+        </div>
+
+        <div class="space-y-2.5">
+          <button onclick="exportHsinchuLogisticsExcel()" class="w-full py-3 px-4 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm rounded-lg shadow-sm transition-all flex items-center justify-center gap-2">
+            <svg width="16" height="16" class="w-4 h-4 text-emerald-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            匯出新竹物流 Excel 檔
+          </button>
+
+          <button onclick="openGeminiAddressModal()" class="w-full py-2.5 px-4 bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-2">
+            <svg width="16" height="16" class="w-4 h-4 text-indigo-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+            </svg>
+            AI 地址智慧校對 & 驗證 (Gemini)
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+    <section id="empty-state" class="jp-card p-12 text-center my-8 bg-white border border-slate-200 rounded-xl shadow-sm">
+      <div class="w-16 h-16 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-4">
+        <svg width="32" height="32" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+      </div>
+      <h3 class="text-base font-semibold text-slate-700 mb-1">尚未載入訂單資料</h3>
+      <p class="text-xs text-slate-400 max-w-md mx-auto">請先在上方上傳 Excel / CSV 訂單檔案，系統將會自動對應 Google 試算表資料並生成分析報告。</p>
+    </section>
+
+    <div id="report-content" class="hidden space-y-8">
+
+      <!-- Action Bar & Summary Bar -->
+      <aside aria-label="數據統計列" class="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <dl class="flex items-center space-x-6 text-xs text-slate-600">
+          <div>
+            <dt class="text-slate-400 text-[10px]">解析總訂單數</dt>
+            <dd id="stat-total-orders" class="text-sm font-bold text-slate-900 font-mono">0 筆</dd>
+          </div>
+          <div class="border-l border-slate-200 pl-6">
+            <dt class="text-slate-400 text-[10px]">商品列總數</dt>
+            <dd id="stat-total-rows" class="text-sm font-bold text-slate-900 font-mono">0 列</dd>
+          </div>
+          <div class="border-l border-slate-200 pl-6">
+            <dt class="text-slate-400 text-[10px]">統計不重複細目</dt>
+            <dd id="stat-unique-details" class="text-sm font-bold text-slate-900 font-mono">0 款</dd>
+          </div>
+        </dl>
+        <button onclick="window.print()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5">
+          🖨️ 列印全部出貨明細 (含訂單條碼)
+        </button>
+      </aside>
+
+      <!-- Print Header for Standard A4 print -->
+      <div class="print-only mb-6 border-b-2 border-black pb-4">
+        <h1 class="text-2xl font-bold text-black tracking-tight">訂單彙整與出貨明細報告</h1>
+        <div class="flex justify-between items-center text-xs text-black mt-2">
+          <span id="report-timestamp">產生時間：-</span>
+          <span>資料對應來源：Google 試算表 (GAS API)</span>
+        </div>
+      </div>
+
+      <!-- LOGIC A SECTION -->
+      <section class="space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+          <h3 class="text-base font-bold text-slate-900 print:text-black flex items-center gap-2">
+            <span class="bg-slate-900 text-white text-xs px-2 py-0.5 rounded print:bg-black">邏輯 A</span>
+            <span>品項細目總量統計 (型號 ➔ 細目對應)</span>
+          </h3>
+          <span class="text-xs text-slate-500 print:text-black font-mono">依 Google 試算表列順序排列</span>
+        </div>
+
+        <div class="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+          <table class="w-full text-left border-collapse text-xs print-table">
+            <thead>
+              <tr class="bg-slate-100 text-slate-800 font-semibold border-b border-slate-200">
+                <th scope="col" class="py-2.5 px-3 w-12 text-center">#</th>
+                <th scope="col" class="py-2.5 px-3">對應細目名稱 (Google Sheet G列)</th>
+                <th scope="col" class="py-2.5 px-3 text-center w-28">總累計數量</th>
+                <th scope="col" class="py-2.5 px-3 text-center w-28">內襯 (J列)</th>
+                <th scope="col" class="py-2.5 px-3 text-center w-28">包裝盒 (K列)</th>
+                <th scope="col" class="py-2.5 px-3">包含原始型號 (Excel U列)</th>
+              </tr>
+            </thead>
+            <tbody id="logic-a-tbody" class="divide-y divide-slate-200 text-slate-800 bg-white">
+              <!-- Dynamic Rows -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Logic A Extra Summary (Screen View) -->
+        <div id="logic-a-extra-summary" class="no-print grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          <!-- Rendered dynamically -->
+        </div>
+      </section>
+
+      <!-- LOGIC B SECTION -->
+      <section class="space-y-4 pt-4">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+          <h3 class="text-base font-bold text-slate-900 print:text-black flex items-center gap-2">
+            <span class="bg-slate-800 text-white text-xs px-2 py-0.5 rounded print:bg-black">邏輯 B</span>
+            <span>收件地址去重與單號彙整卡片 (含訂單條碼與包材提示)</span>
+          </h3>
+          <span class="text-xs text-slate-500 print:text-black font-mono">同一訂單編號併入單卡</span>
+        </div>
+
+        <div id="logic-b-cards" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Dynamic Order Cards -->
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- =========================================================
+       🆕 模式二：手機掃碼包裝核對工作站 (Pack Mode)
+  ========================================================= -->
+  <section id="pack-mode-view" class="hidden flex-grow max-w-lg w-full mx-auto px-4 py-5 space-y-4">
+    
+    <!-- 若尚未匯入訂單，提供手機直接上傳 CSV/Excel 的入口 -->
+    <div id="pack-upload-prompt" class="jp-card p-6 text-center space-y-4">
+      <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto font-bold text-xl">
+        📱
+      </div>
+      <div>
+        <h2 class="text-base font-bold text-slate-900">行動包裝掃碼核對站</h2>
+        <p class="text-xs text-slate-500 mt-1">請先匯入今日的 Shopify 訂單 Excel / CSV 檔案，系統會自動對應 Google 試算表的品名、包裝盒與內襯。</p>
+      </div>
+      <label class="block w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl cursor-pointer shadow-sm transition-all">
+        📂 選擇訂單檔案 (.xlsx / .csv)
+        <input type="file" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
+      </label>
+    </div>
+
+    <!-- 已載入訂單後的掃碼主控台 -->
+    <div id="pack-workspace" class="hidden space-y-3">
+      
+      <!-- 1. 訂單切換選單 (支援缺件暫存跳過與切回) -->
+      <div class="jp-card p-3 flex items-center justify-between gap-2 bg-white">
+        <select id="pack-order-select" onchange="selectPackOrder(this.value)" class="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-sm font-bold rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono">
+          <!-- 動態產生訂單選項 -->
+        </select>
+        <label class="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg cursor-pointer shrink-0" title="重新匯入訂單檔">
+          📂 換檔
+          <input type="file" class="hidden" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)">
+        </label>
+      </div>
+
+      <!-- 2. 當前訂單資訊與包材提示 (自動讀取 Google Sheet J/K列) -->
+      <div class="jp-card p-4 space-y-2.5">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="pack-order-id" class="text-xl font-black text-slate-900 font-mono">#1001</span>
+              <span id="pack-order-progress" class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">0 / 0</span>
+            </div>
+            <p id="pack-customer-info" class="text-xs text-slate-500 mt-0.5">收件人：-</p>
+          </div>
+          <div id="pack-box-badges" class="flex flex-col items-end gap-1">
+            <!-- 動態顯示建議包裝盒與內襯 -->
+          </div>
+        </div>
+        <div id="pack-adjustment-alert" class="hidden bg-amber-50 border border-amber-300 text-amber-900 text-xs p-2 rounded-lg font-medium"></div>
+      </div>
+
+      <!-- 3. 手機相機掃描框 -->
+      <div class="bg-black rounded-xl overflow-hidden border-2 border-slate-300 relative shadow-inner">
+        <div id="qr-reader" class="w-full"></div>
+        <div id="camera-control-bar" class="bg-slate-900 p-2 flex justify-between items-center text-xs text-slate-300">
+          <span id="camera-status-text">📷 相機準備中...</span>
+          <button onclick="toggleScanner()" id="toggle-cam-btn" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded font-semibold">
+            重啟鏡頭
+          </button>
+        </div>
+      </div>
+
+      <!-- 4. 掃描狀態回饋橫幅 -->
+      <div id="pack-status-banner" class="p-3 rounded-xl text-center font-bold text-sm bg-white border border-slate-200 text-slate-700 shadow-sm transition-all">
+        請掃描「裝箱單條碼」切換訂單，或掃「商品型號條碼」核對
+      </div>
+
+      <!-- 5. 藍牙條碼槍 / 手動備用輸入框 -->
+      <div class="flex gap-2">
+        <input type="text" id="pack-manual-input" placeholder="藍牙條碼槍刷入，或手動輸入型號/單號" class="flex-1 px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-mono focus:outline-none focus:border-indigo-600">
+        <button onclick="handlePackManualSubmit()" class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl">
+          確認
+        </button>
+      </div>
+
+      <!-- 6. 待核對商品清單 -->
+      <div id="pack-items-list" class="space-y-2">
+        <!-- 動態產生商品卡片 -->
+      </div>
+
+      <!-- 7. 底部操作按鈕 -->
+      <div class="pt-2 pb-6 flex gap-2">
+        <button id="pack-next-btn" onclick="goToNextUnfinishedOrder()" class="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-md transition-all">
+          暫存缺件 / 跳至下一筆未完成訂單 →
+        </button>
+      </div>
+
+    </div>
+  </section>
+
+  <div id="a5-print-view" class="a5-print-container">
+    <!-- Rendered dynamically for A5 print -->
   </div>
 
-  <!-- 5. 待核對商品清單 -->
-  <div class="item-list" id="itemList"></div>
-
-  <!-- 6. 下一筆按鈕 -->
-  <div class="controls">
-    <button class="btn-next" id="nextOrderBtn" onclick="loadNextOrder()">跳過 / 下一筆訂單 →</button>
-  </div>
+  <footer class="no-print bg-slate-100 border-t border-slate-200 py-4 mt-12 text-center text-xs text-slate-500">
+    <p>黑柳徹 Shopify 訂單彙整與細目核對系統 &copy; 2026 | 單一檔案極速優化架構</p>
+  </footer>
 
   <script>
-    // ==========================================
-    // 模擬 Shopify 匯入的訂單資料 (實際使用可替換為你的 CSV 解析結果)
-    // ==========================================
-    const orders = [
-      {
-        id: "#1001",
-        customer: "陳小姐 · 全家店到店",
-        box: "M 號箱",
-        items: [
-          { sku: "4717546014175", name: "重磅純棉素T (黑 / M)", qty: 2, scanned: 0 },
-          { sku: "ACC-005-WHT", name: "日系簡約帆布袋 (米白)", qty: 1, scanned: 0 }
-        ]
-      },
-      {
-        id: "#1002",
-        customer: "林先生 · 宅配到府",
-        box: "L 號箱",
-        items: [
-          { sku: "JKT-003-NVY-L", name: "防潑水連帽風衣 (深藍 / L)", qty: 1, scanned: 0 },
-          { sku: "PNT-008-KHK-M", name: "寬版工裝長褲 (卡其 / M)", qty: 1, scanned: 0 }
-        ]
+    window.onerror = function(msg) {
+      if (typeof msg === 'string' && msg.includes('Script error')) {
+        console.warn('Suppressed cross-origin script notice:', msg);
+        return true;
       }
-    ];
+      return false;
+    };
 
-    let currentOrderIndex = 0;
-    let lastScannedCode = "";
-    let lastScanTime = 0;
+    /* ===== 🔧 Apps Script Web App 網址 ===== */
+    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxfzN0P4Up9gS9CmNW9lwylnQzJ7usU4WCCzcJW-UajCeUbUyOZm5aFR1sp3NVrVTCl/exec';
 
-    // ==========================================
-    // 音效合成器 (免音檔，直接透過瀏覽器發聲)
-    // ==========================================
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    function playTone(type) {
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
+    let modelToDetailMap = new Map();
+    let detailOrderMap = new Map();
+    let detailExtraInfoMap = new Map();
 
-      const now = audioCtx.currentTime;
-      if (type === 'success') {
-        // 清脆高音叮一聲
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, now);
-        osc.frequency.setValueAtTime(1174.66, now + 0.08);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
-        osc.start(now);
-        osc.stop(now + 0.25);
-      } else if (type === 'error') {
-        // 低沉警告音
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.setValueAtTime(140, now + 0.15);
-        gain.gain.setValueAtTime(0.4, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-        osc.start(now);
-        osc.stop(now + 0.4);
-      } else if (type === 'complete') {
-        // 整單完成提示音
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(523.25, now);
-        osc.frequency.setValueAtTime(659.25, now + 0.1);
-        osc.frequency.setValueAtTime(783.99, now + 0.2);
-        osc.frequency.setValueAtTime(1046.50, now + 0.3);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
-        osc.start(now);
-        osc.stop(now + 0.55);
+    let isMappingLoaded = false;
+    let rawExcelRows = [];
+    let lastProcessedDetailSummaryMap = new Map();
+    let lastProcessedOrdersMap = new Map();
+
+    // 🆕 手機掃碼模式狀態變數
+    let currentMode = 'report';
+    let packOrdersList = [];
+    let currentPackOrderIdx = 0;
+    let html5QrCodeInstance = null;
+    let isScannerRunning = false;
+    let lastScannedCode = '';
+    let lastScanTimestamp = 0;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchGoogleSheetMapping();
+      setupDragAndDrop();
+      setupModalKeyboardEvents();
+
+      // 支援網址參數 ?mode=pack 直接開啟手機掃碼模式
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('mode') === 'pack') {
+        switchMode('pack');
+      }
+
+      // 監聽手動/藍牙槍輸入框 Enter
+      const manualInput = document.getElementById('pack-manual-input');
+      if (manualInput) {
+        manualInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handlePackManualSubmit();
+          }
+        });
+      }
+    });
+
+    /* =========================================================
+       🆕 模式切換邏輯 (彙整列印模式 vs 手機掃碼包裝模式)
+    ========================================================= */
+    function switchMode(mode) {
+      currentMode = mode;
+      const reportView = document.getElementById('report-mode-view');
+      const packView = document.getElementById('pack-mode-view');
+      const tabReportBtn = document.getElementById('tab-report-btn');
+      const tabPackBtn = document.getElementById('tab-pack-btn');
+
+      if (mode === 'pack') {
+        reportView.classList.add('hidden');
+        packView.classList.remove('hidden');
+        tabPackBtn.className = 'flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white shadow-sm transition-all flex items-center justify-center gap-1.5';
+        tabReportBtn.className = 'flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:text-white transition-all';
+
+        if (packOrdersList.length > 0) {
+          document.getElementById('pack-upload-prompt').classList.add('hidden');
+          document.getElementById('pack-workspace').classList.remove('hidden');
+          renderPackWorkspace();
+          startMobileScanner();
+        } else {
+          document.getElementById('pack-upload-prompt').classList.remove('hidden');
+          document.getElementById('pack-workspace').classList.add('hidden');
+        }
+      } else {
+        packView.classList.add('hidden');
+        reportView.classList.remove('hidden');
+        tabReportBtn.className = 'flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-600 text-white shadow-sm transition-all';
+        tabPackBtn.className = 'flex-1 sm:flex-initial px-3 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-1.5';
+        stopMobileScanner();
       }
     }
 
-    // ==========================================
-    // 畫面渲染與核對邏輯
-    // ==========================================
-    function renderOrder() {
-      const order = orders[currentOrderIndex];
-      document.getElementById('orderId').textContent = order.id;
-      document.getElementById('customerInfo').textContent = order.customer;
-      document.getElementById('boxType').textContent = `建議：${order.box}`;
+    function setupModalKeyboardEvents() {
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closeMappingModal();
+          closeGeminiAddressModal();
+        }
+      });
 
-      const listEl = document.getElementById('itemList');
+      ['mapping-modal', 'gemini-modal'].forEach(modalId => {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+          modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+              modal.classList.add('hidden');
+            }
+          });
+        }
+      });
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      const bgColors = {
+        success: 'bg-emerald-800 text-white border-emerald-900',
+        error: 'bg-rose-800 text-white border-rose-900',
+        info: 'bg-slate-800 text-white border-slate-900',
+        warning: 'bg-amber-800 text-white border-amber-900'
+      };
+
+      toast.className = `p-3 rounded-lg shadow-lg border text-xs font-medium transition-all duration-200 transform translate-y-2 opacity-0 pointer-events-auto flex items-center justify-between gap-3 ${bgColors[type] || bgColors.info}`;
+      toast.innerHTML = `
+        <span>${escapeHtml(message)}</span>
+        <button onclick="this.parentElement.remove()" class="font-bold hover:opacity-75 focus:outline-none text-base leading-none">&times;</button>
+      `;
+
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 200);
+      }, 4000);
+    }
+
+    function openMappingModal() {
+      document.getElementById('mapping-modal').classList.remove('hidden');
+    }
+
+    function closeMappingModal() {
+      document.getElementById('mapping-modal').classList.add('hidden');
+    }
+
+    function openGeminiAddressModal() {
+      if (!lastProcessedOrdersMap || lastProcessedOrdersMap.size === 0) {
+        showToast('請先上傳並解析 Excel 訂單檔案！', 'error');
+        return;
+      }
+      document.getElementById('gemini-modal').classList.remove('hidden');
+    }
+
+    function closeGeminiAddressModal() {
+      document.getElementById('gemini-modal').classList.add('hidden');
+    }
+
+    function handleMappingFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          if (!rows || rows.length < 2) {
+            showToast('上傳的對應表檔案無內容', 'error');
+            return;
+          }
+
+          processMappingRows(rows);
+          closeMappingModal();
+          showToast(`已手動上傳並更新對應表 (${modelToDetailMap.size} 筆)`, 'success');
+
+          if (rawExcelRows.length > 0) {
+            processExcelRows(rawExcelRows);
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('無法解析上傳的對應表檔案', 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    /* ===== 🚀 透過 Apps Script Web App API 讀取 JSON ===== */
+    function fetchGoogleSheetMapping() {
+      updateSyncUI('loading', '同步線上對應表中...');
+
+      if (!GAS_API_URL || GAS_API_URL.includes('YOUR_APPS_SCRIPT_ID')) {
+        tryFallbackCacheOrWarn('未設定 GAS API 網址');
+        return;
+      }
+
+      fetch(GAS_API_URL)
+        .then(response => {
+          if (!response.ok) throw new Error('API 傳回異常狀態');
+          return response.json();
+        })
+        .then(rows => {
+          if (rows && rows.length > 0) {
+            processMappingRows(rows);
+            isMappingLoaded = true;
+            try { 
+              localStorage.setItem('cached_mapping_rows', JSON.stringify(rows)); 
+            } catch (e) {}
+            
+            updateSyncUI('success', `對應表就緒 (${modelToDetailMap.size})`);
+            showToast(`Google 試算表同步成功！已載入 ${modelToDetailMap.size} 筆對應`, 'success');
+            
+            if (rawExcelRows.length > 0) {
+              processExcelRows(rawExcelRows);
+            }
+          } else {
+            tryFallbackCacheOrWarn('試算表內容空白');
+          }
+        })
+        .catch(err => {
+          console.error('GAS Fetch Error:', err);
+          tryFallbackCacheOrWarn('連線 Google 試算表失敗');
+        });
+    }
+
+    function tryFallbackCacheOrWarn(msg) {
+      const cachedData = localStorage.getItem('cached_mapping_rows');
+      if (cachedData) {
+        try {
+          const rows = JSON.parse(cachedData);
+          if (rows && rows.length > 0) {
+            processMappingRows(rows);
+            isMappingLoaded = true;
+            updateSyncUI('warning', `離線快取 (${modelToDetailMap.size})`);
+            showToast(`已自動載入本地快取對應表 (${modelToDetailMap.size} 筆)`, 'info');
+            if (rawExcelRows.length > 0) processExcelRows(rawExcelRows);
+            return;
+          }
+        } catch (e) {}
+      }
+
+      isMappingLoaded = false;
+      updateSyncUI('error', '同步失敗 (點此設定)');
+      showToast(`${msg}。請點擊右上角⚙️按鈕手動上傳對應表`, 'warning');
+    }
+
+    function updateSyncUI(state, text) {
+      const dot = document.getElementById('status-dot');
+      const textElem = document.getElementById('status-text');
+      if (!dot || !textElem) return;
+
+      textElem.textContent = text;
+      dot.className = 'w-2 h-2 rounded-full ';
+
+      if (state === 'loading') {
+        dot.className += 'bg-amber-400 animate-pulse';
+      } else if (state === 'success') {
+        dot.className += 'bg-emerald-400';
+      } else if (state === 'warning') {
+        dot.className += 'bg-amber-400';
+      } else {
+        dot.className += 'bg-rose-500';
+      }
+    }
+
+    function normalizeKey(str) {
+      if (!str) return '';
+      return String(str)
+        .normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
+    }
+
+    function processMappingRows(rows) {
+      modelToDetailMap.clear();
+      detailOrderMap.clear();
+      detailExtraInfoMap.clear();
+
+      if (!rows || rows.length < 1) return;
+
+      let modelColIdx = -1; 
+      let detailColIdx = -1;
+      let liningColIdx = -1; 
+      let boxColIdx = -1;
+
+      for (let i = 0; i < Math.min(10, rows.length); i++) {
+        const r = rows[i];
+        if (!r) continue;
+        r.forEach((cell, idx) => {
+          const val = cleanStr(cell).replace(/\s+/g, '');
+          if (val.includes('型號')) modelColIdx = idx;
+          if (val.includes('細目')) detailColIdx = idx;
+          if (val.includes('內襯')) liningColIdx = idx;
+          if (val.includes('包裝盒')) boxColIdx = idx;
+        });
+      }
+
+      if (modelColIdx === -1) modelColIdx = 4;
+      if (detailColIdx === -1) detailColIdx = 6;
+      if (liningColIdx === -1) liningColIdx = 9;
+      if (boxColIdx === -1) boxColIdx = 10;
+
+      let orderSequence = 0;
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const modelVal = cleanStr(row[modelColIdx]);
+        const detailVal = cleanStr(row[detailColIdx]);
+
+        if (modelVal && detailVal && !modelVal.includes('型號')) {
+          const normKey = normalizeKey(modelVal);
+          modelToDetailMap.set(normKey, detailVal);
+
+          if (!detailOrderMap.has(detailVal)) {
+            detailOrderMap.set(detailVal, orderSequence++);
+          }
+
+          const liningVal = row[liningColIdx] !== undefined ? cleanStr(row[liningColIdx]) : '';
+          const boxVal = row[boxColIdx] !== undefined ? cleanStr(row[boxColIdx]) : '';
+          
+          if (!detailExtraInfoMap.has(detailVal)) {
+            detailExtraInfoMap.set(detailVal, { lining: liningVal, box: boxVal });
+          } else {
+            const existing = detailExtraInfoMap.get(detailVal);
+            if (!existing.lining && liningVal) existing.lining = liningVal;
+            if (!existing.box && boxVal) existing.box = boxVal;
+          }
+        }
+      }
+    }
+
+    function setupDragAndDrop() {
+      const dropzone = document.querySelector('.border-dashed');
+      if (!dropzone) return;
+
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, e => {
+          e.preventDefault();
+          e.stopPropagation();
+        }, false);
+      });
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, () => dropzone.classList.add('border-indigo-600', 'bg-indigo-50/30'), false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, () => dropzone.classList.remove('border-indigo-600', 'bg-indigo-50/30'), false);
+      });
+
+      dropzone.addEventListener('drop', e => {
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          handleFile(files[0]);
+        }
+      });
+    }
+
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (file) {
+        handleFile(file);
+      }
+    }
+
+    function handleFile(file) {
+      if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+        showToast('檔案格式不正確！請上傳 .xlsx, .xls 或 .csv 格式之檔案', 'error');
+        return;
+      }
+
+      document.getElementById('upload-label').textContent = `已選擇：${file.name}`;
+      document.getElementById('file-name-text').textContent = file.name;
+      document.getElementById('file-stats-text').textContent = `${(file.size / 1024).toFixed(1)} KB`;
+      document.getElementById('file-info-bar').classList.remove('hidden');
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array', codepage: 65001 });
+
+          let targetSheetName = workbook.SheetNames.find(s => s.toLowerCase() === 'orders_export') || workbook.SheetNames[0];
+          const sheet = workbook.Sheets[targetSheetName];
+
+          rawExcelRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          if (!rawExcelRows || rawExcelRows.length <= 1) {
+            showToast('訂單檔案內無有效的資料', 'warning');
+            return;
+          }
+
+          processExcelRows(rawExcelRows);
+          showToast('訂單檔案解析成功！', 'success');
+
+        } catch (err) {
+          console.error('Error parsing Excel/CSV:', err);
+          showToast('解析訂單檔案發生錯誤，請確定檔案內容正確', 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function findColumnIndices(headerRow) {
+      const colIdx = {
+        orderId: 0,
+        model: 20,
+        qty: 16,
+        lineItemName: 17,
+        lineItemPrice: 18,
+        outstandingBalance: -1,
+        name: 34,
+        detailAddr: 35,
+        district: 39,
+        zip: 40,
+        phone: 43
+      };
+
+      if (!headerRow || !Array.isArray(headerRow)) return colIdx;
+
+      headerRow.forEach((cell, idx) => {
+        const val = String(cell || '').trim();
+        const valUpper = val.toUpperCase();
+
+        if (
+          val.includes('數量') || 
+          val.includes('件數') || 
+          val.includes('購買數量') || 
+          val.includes('商品數量') || 
+          val.includes('單品數量') || 
+          valUpper.includes('QUANTITY') || 
+          valUpper.includes('LINEITEM QUANTITY') || 
+          valUpper === 'QTY'
+        ) {
+          if (!/金額|單價|小計|總價|價格|價錢|費用/i.test(val)) {
+            colIdx.qty = idx;
+          }
+        }
+
+        if (val.includes('訂單編號') || val.includes('訂單號') || valUpper === 'ORDER ID' || valUpper === 'ORDER NO' || val === 'Name') {
+          colIdx.orderId = idx;
+        }
+
+        if (val === '型號' || val.includes('商品型號') || val.includes('主型號') || valUpper === 'SKU' || val.includes('款式型號') || valUpper.includes('LINEITEM SKU')) {
+          colIdx.model = idx;
+        }
+
+        if (valUpper.includes('LINEITEM NAME') || val.includes('品項名稱') || val.includes('商品名稱')) {
+          colIdx.lineItemName = idx;
+        }
+
+        if (valUpper.includes('LINEITEM PRICE') || val.includes('品項單價') || val.includes('商品單價')) {
+          colIdx.lineItemPrice = idx;
+        }
+
+        if (valUpper.includes('OUTSTANDING BALANCE') || val.includes('未收餘額') || val.includes('未付餘額')) {
+          colIdx.outstandingBalance = idx;
+        }
+
+        if (val.includes('收件人') || val.includes('收件姓名') || val.includes('買家姓名') || val === '收件人姓名') {
+          colIdx.name = idx;
+        }
+
+        if (val.includes('詳細地址') || val.includes('收件地址') || val.includes('街道地址')) {
+          colIdx.detailAddr = idx;
+        }
+
+        if (val.includes('行政區') || val.includes('鄉鎮市區') || val.includes('縣市')) {
+          colIdx.district = idx;
+        }
+
+        if (val.includes('郵遞區號') || valUpper.includes('ZIP') || valUpper.includes('POSTAL')) {
+          colIdx.zip = idx;
+        }
+
+        if (val.includes('電話') || val.includes('手機') || val.includes('聯絡電話')) {
+          colIdx.phone = idx;
+        }
+      });
+
+      return colIdx;
+    }
+
+    function processExcelRows(rows) {
+      if (!rows || rows.length < 2) return;
+
+      const ordersMap = new Map();
+
+      const headerRow = rows[0] || [];
+      const colIdx = findColumnIndices(headerRow);
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue;
+
+        const orderId = cleanStr(row[colIdx.orderId]);
+        if (!orderId || orderId.toLowerCase() === 'name' || orderId.includes('訂單編號')) continue;
+
+        const rawModel = cleanStr(row[colIdx.model]);
+        const normModel = normalizeKey(rawModel);
+        const productName = cleanStr(row[colIdx.lineItemName]);
+        const unitPrice = parseMoney(row[colIdx.lineItemPrice]);
+        const outstandingBalance = parseMoney(row[colIdx.outstandingBalance]);
+
+        const recipientName = cleanStr(row[colIdx.name]);
+        const zip = cleanStr(row[colIdx.zip]);
+        const district = cleanStr(row[colIdx.district]);
+        const addressDetail = cleanStr(row[colIdx.detailAddr]);
+        const phone = formatPhoneNumber(row[colIdx.phone]);
+
+        let qty = 1;
+
+        if (colIdx.qty !== -1 && row[colIdx.qty] !== undefined && row[colIdx.qty] !== '') {
+          const parsedQty = parseInt(row[colIdx.qty], 10);
+          if (!isNaN(parsedQty) && parsedQty > 0) {
+            qty = parsedQty;
+          }
+        } 
+        else if (row[16] !== undefined && row[16] !== '') {
+          const parsedQ = parseInt(row[16], 10);
+          if (!isNaN(parsedQ) && parsedQ > 0) {
+            qty = parsedQ;
+          }
+        }
+
+        let detailName = '';
+        let isMapped = false;
+
+        if (normModel && modelToDetailMap.has(normModel)) {
+          detailName = modelToDetailMap.get(normModel);
+          isMapped = true;
+        } else {
+          detailName = rawModel ? `${rawModel} (未對應細目)` : '無型號品項';
+          isMapped = false;
+        }
+
+        if (!ordersMap.has(orderId)) {
+          const fullAddress = assembleAddress(zip, district, addressDetail);
+          ordersMap.set(orderId, {
+            orderId: orderId,
+            name: recipientName || '-',
+            phone: phone || '-',
+            address: fullAddress || '-',
+            items: [],
+            outstandingBalance: 0,
+            adjustment: null
+          });
+        }
+
+        const currentOrder = ordersMap.get(orderId);
+        if (outstandingBalance > 0) {
+          currentOrder.outstandingBalance = outstandingBalance;
+        }
+        currentOrder.items.push({
+          model: rawModel || '無型號',
+          detailName: detailName,
+          productName: productName || detailName,
+          qty: qty,
+          unitPrice: unitPrice,
+          lineTotal: unitPrice * qty
+        });
+      }
+
+      applyOutstandingBalanceAdjustments(ordersMap);
+      const detailSummaryMap = buildDetailSummary(ordersMap);
+      const totalItemRowsCount = Array.from(ordersMap.values())
+        .reduce((count, order) => count + order.items.length, 0);
+
+      lastProcessedDetailSummaryMap = detailSummaryMap;
+      lastProcessedOrdersMap = ordersMap;
+
+      // 🆕 同步建立手機掃碼核對用的訂單陣列
+      initPackOrdersData(ordersMap);
+
+      renderReport(ordersMap, detailSummaryMap, totalItemRowsCount);
+    }
+
+    function parseMoney(value) {
+      if (value === null || value === undefined || value === '') return 0;
+      if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+      const normalized = String(value).replace(/[^0-9.-]/g, '');
+      const amount = Number(normalized);
+      return Number.isFinite(amount) ? amount : 0;
+    }
+
+    function amountsMatch(firstAmount, secondAmount) {
+      return Math.abs(firstAmount - secondAmount) < 0.005;
+    }
+
+    function applyOutstandingBalanceAdjustments(ordersMap) {
+      ordersMap.forEach(order => {
+        if (!(order.outstandingBalance > 0)) return;
+
+        const matchingItems = order.items.filter(item =>
+          item.lineTotal > 0 && amountsMatch(item.lineTotal, order.outstandingBalance)
+        );
+
+        if (matchingItems.length === 1) {
+          const removedItem = matchingItems[0];
+          order.items = order.items.filter(item => item !== removedItem);
+          order.adjustment = {
+            status: 'applied',
+            balance: order.outstandingBalance,
+            removedItems: [removedItem]
+          };
+        } else {
+          order.adjustment = {
+            status: 'needs-review',
+            balance: order.outstandingBalance,
+            matchCount: matchingItems.length
+          };
+        }
+      });
+    }
+
+    function buildDetailSummary(ordersMap) {
+      const detailSummaryMap = new Map();
+
+      ordersMap.forEach(order => {
+        order.items.forEach(item => {
+          if (!detailSummaryMap.has(item.detailName)) {
+            detailSummaryMap.set(item.detailName, {
+              totalQty: 0,
+              originalModels: new Set(),
+              orderIds: new Set(),
+              isMapped: !item.detailName.includes('未對應細目') && item.detailName !== '無型號品項'
+            });
+          }
+
+          const summaryEntry = detailSummaryMap.get(item.detailName);
+          summaryEntry.totalQty += item.qty;
+          if (item.model && item.model !== '無型號') summaryEntry.originalModels.add(item.model);
+          summaryEntry.orderIds.add(order.orderId);
+        });
+      });
+
+      return detailSummaryMap;
+    }
+
+    function formatCurrency(amount) {
+      return `NT$${Math.round(amount).toLocaleString('zh-TW')}`;
+    }
+
+    function cleanStr(val) {
+      if (val === null || val === undefined) return '';
+      return String(val).trim().replace(/^['’]+/, '');
+    }
+
+    function formatPhoneNumber(phone) {
+      if (phone === null || phone === undefined) return '';
+      let str = String(phone).trim().replace(/^['’]+/, '');
+      if (!str) return '';
+
+      if (str.startsWith('+886')) {
+        str = '0' + str.slice(4);
+      } else if (str.startsWith('886') && str.length >= 11) {
+        str = '0' + str.slice(3);
+      }
+
+      const digits = str.replace(/[^\d]/g, '');
+
+      if (/^9\d{8}$/.test(digits)) {
+        return '0' + digits;
+      }
+
+      if (!digits.startsWith('0') && digits.startsWith('9')) {
+        return '0' + digits;
+      }
+
+      return digits || str;
+    }
+
+    function assembleAddress(zip, district, detail) {
+      const cleanZip = cleanStr(zip);
+      const cleanDist = cleanStr(district);
+      const cleanDet = cleanStr(detail);
+      const parts = [cleanZip, cleanDist, cleanDet].filter(p => Boolean(p && p.trim()));
+      let fullAddr = parts.join(' ').trim();
+      return fullAddr.replace(/^['’]+/, '');
+    }
+
+    // 🆕 計算單筆訂單所需的包裝盒與內襯提示 (直接從 Google Sheet J/K 列抓取)
+    function getOrderPackagingSummary(order) {
+      const boxes = new Map();
+      const linings = new Map();
+      order.items.forEach(item => {
+        const extra = detailExtraInfoMap.get(item.detailName);
+        if (extra) {
+          if (extra.box && extra.box !== '-') {
+            boxes.set(extra.box, (boxes.get(extra.box) || 0) + item.qty);
+          }
+          if (extra.lining && extra.lining !== '-') {
+            linings.set(extra.lining, (linings.get(extra.lining) || 0) + item.qty);
+          }
+        }
+      });
+      return { boxes, linings };
+    }
+
+    function renderReport(ordersMap, detailSummaryMap, totalItemRows) {
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('report-content').classList.remove('hidden');
+
+      const now = new Date();
+      document.getElementById('report-timestamp').textContent = `產生時間：${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      document.getElementById('stat-total-orders').textContent = `${ordersMap.size} 筆`;
+      document.getElementById('stat-total-rows').textContent = `${totalItemRows} 列`;
+      document.getElementById('stat-unique-details').textContent = `${detailSummaryMap.size} 款`;
+
+      // Render Logic A Table
+      const tbody = document.getElementById('logic-a-tbody');
+      tbody.innerHTML = '';
+
+      const sortedSummaries = Array.from(detailSummaryMap.entries()).sort(([detailA], [detailB]) => {
+        const orderA = detailOrderMap.has(detailA) ? detailOrderMap.get(detailA) : 999999;
+        const orderB = detailOrderMap.has(detailB) ? detailOrderMap.get(detailB) : 999999;
+
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return detailA.localeCompare(detailB, 'zh-TW');
+      });
+
+      const liningCounts = new Map();
+      const boxCounts = new Map();
+
+      let idx = 1;
+      sortedSummaries.forEach(([detailName, data]) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50/80 transition-colors';
+        const modelsStr = Array.from(data.originalModels).map(m => escapeHtml(m)).join(', ');
+        const orderIdsStr = Array.from(data.orderIds || []).map(o => escapeHtml(o)).join(', ');
+
+        const isUnmapped = detailName === '無型號品項' || detailName.includes('未對應細目') || !data.isMapped;
+        const textColorClass = isUnmapped ? 'text-rose-600 font-bold' : 'text-slate-900 font-semibold';
+
+        let detailDisplay = escapeHtml(detailName);
+        if (isUnmapped && data.orderIds && data.orderIds.size > 0) {
+          detailDisplay += ` <span class="text-xs font-normal text-rose-500 font-mono">(訂單: ${orderIdsStr})</span>`;
+        }
+
+        const extraInfo = detailExtraInfoMap.get(detailName) || { lining: '-', box: '-' };
+        const liningTxt = extraInfo.lining ? escapeHtml(extraInfo.lining) : '-';
+        const boxTxt = extraInfo.box ? escapeHtml(extraInfo.box) : '-';
+
+        if (extraInfo.lining && extraInfo.lining !== '-') {
+          liningCounts.set(extraInfo.lining, (liningCounts.get(extraInfo.lining) || 0) + data.totalQty);
+        }
+        if (extraInfo.box && extraInfo.box !== '-') {
+          boxCounts.set(extraInfo.box, (boxCounts.get(extraInfo.box) || 0) + data.totalQty);
+        }
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 text-center text-slate-400 font-mono">${idx++}</td>
+          <td class="py-2.5 px-3 ${textColorClass}">${detailDisplay}</td>
+          <td class="py-2.5 px-3 text-center font-bold text-slate-900 text-sm font-mono">${data.totalQty}</td>
+          <td class="py-2.5 px-3 text-center text-slate-700 font-mono text-xs">${liningTxt}</td>
+          <td class="py-2.5 px-3 text-center text-slate-700 font-mono text-xs">${boxTxt}</td>
+          <td class="py-2.5 px-3 text-slate-500 font-mono text-[11px]">${modelsStr || '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      renderScreenExtraSummary(liningCounts, boxCounts);
+
+      // Render Logic B Cards (🆕 加入訂單條碼 SVG 與包材提示)
+      const cardsContainer = document.getElementById('logic-b-cards');
+      cardsContainer.innerHTML = '';
+
+      let cardNum = 1;
+      ordersMap.forEach((order) => {
+        const card = document.createElement('article');
+        const cleanBarcodeVal = order.orderId.replace(/^#/, '').trim();
+        const barcodeSvgId = `order-barcode-${cardNum}`;
+
+        // 取得該訂單的包裝盒/內襯建議
+        const pkg = getOrderPackagingSummary(order);
+        const pkgTags = [];
+        pkg.boxes.forEach((q, name) => pkgTags.push(`📦 盒:${escapeHtml(name)}×${q}`));
+        pkg.linings.forEach((q, name) => pkgTags.push(`🧩 襯:${escapeHtml(name)}×${q}`));
+        const pkgHtml = pkgTags.length > 0
+          ? `<div class="mb-2 flex flex-wrap gap-1.5">${pkgTags.map(t => `<span class="text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded print:bg-white print:border-black print:text-black">${t}</span>`).join('')}</div>`
+          : '';
+        
+        const hasNoModelItem = order.items.some(item => 
+          item.detailName === '無型號品項' || 
+          item.detailName.includes('無型號品項') || 
+          item.detailName.includes('未對應細目')
+        );
+        const hasOrderAdjustment = Boolean(order.adjustment);
+        const removedItemsText = order.adjustment?.removedItems
+          ?.map(item => `${escapeHtml(item.productName)}（${escapeHtml(item.model)}）x ${item.qty}`)
+          .join('、');
+        const adjustmentNoticeHtml = !hasOrderAdjustment ? '' : order.adjustment.status === 'applied'
+          ? `
+            <div class="mb-3 bg-amber-50 border border-amber-300 rounded p-2.5 print:bg-white print:border-black">
+              <span class="text-[10px] text-amber-800 print:text-black font-bold block mb-0.5">偵測到訂單異動</span>
+              <p class="text-xs text-amber-950 print:text-black leading-relaxed">未收餘額為 <strong class="font-mono">${formatCurrency(order.adjustment.balance)}</strong>，已從本次彙整排除相符品項：<strong>${removedItemsText}</strong>。</p>
+            </div>
+          `
+          : `
+            <div class="mb-3 bg-amber-50 border border-amber-300 rounded p-2.5 print:bg-white print:border-black">
+              <span class="text-[10px] text-amber-800 print:text-black font-bold block mb-0.5">偵測到訂單異動，需人工確認</span>
+              <p class="text-xs text-amber-950 print:text-black leading-relaxed">未收餘額為 <strong class="font-mono">${formatCurrency(order.adjustment.balance)}</strong>，但找不到唯一相符的品項，因此本次彙整不會自動刪除任何品項。</p>
+            </div>
+          `;
+
+        const itemsHtml = order.items.map(item => `
+          <li class="flex items-center justify-between text-xs py-1 border-b ${hasNoModelItem ? 'border-rose-200/60' : 'border-slate-100'} last:border-0 print:border-black/20">
+            <div class="flex items-center gap-2">
+              <span class="font-bold ${hasNoModelItem ? 'text-rose-900' : 'text-slate-900'} print:text-black">${escapeHtml(item.detailName)}</span>
+              <span class="text-[10px] ${hasNoModelItem ? 'text-rose-600' : 'text-slate-400'} print:text-black font-mono">(${escapeHtml(item.model)})</span>
+            </div>
+            <span class="font-bold ${hasNoModelItem ? 'text-rose-900' : 'text-slate-900'} print:text-black font-mono">x ${item.qty}</span>
+          </li>
+        `).join('');
+
+        const borderAndBg = (hasNoModelItem || hasOrderAdjustment)
+          ? 'jp-card print-card p-4 bg-rose-50/90 text-slate-900 border-rose-200 relative overflow-hidden shadow-sm'
+          : 'jp-card print-card p-4 bg-white relative overflow-hidden';
+
+        card.className = borderAndBg;
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-2 border-b ${hasNoModelItem || hasOrderAdjustment ? 'border-rose-200' : 'border-slate-200'} pb-2.5 mb-2.5 print:border-black">
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 ${hasNoModelItem || hasOrderAdjustment ? 'bg-rose-600 text-white' : 'bg-slate-100 border border-slate-300 text-slate-800'} font-mono text-xs font-bold rounded print:bg-white print:border-black print:text-black">
+                  #${cardNum} ${hasNoModelItem ? '[未對應]' : (hasOrderAdjustment ? '[異動]' : '')}
+                </span>
+                <span class="text-base font-bold text-slate-900 print:text-black font-mono">${escapeHtml(order.orderId)}</span>
+              </div>
+              <div class="text-xs text-slate-700 print:text-black">
+                <span class="font-semibold">${escapeHtml(order.name)}</span> · <span class="font-mono">${escapeHtml(order.phone)}</span>
+              </div>
+            </div>
+            <!-- 🆕 訂單專屬掃描條碼 -->
+            <div class="text-right shrink-0 bg-white p-1 rounded border border-slate-200 print:border-none">
+              <svg id="${barcodeSvgId}" data-barcode="${escapeHtml(cleanBarcodeVal)}"></svg>
+            </div>
+          </div>
+          ${pkgHtml}
+          ${adjustmentNoticeHtml}
+          <div class="mb-2.5 bg-slate-50/80 p-2 rounded border border-slate-200 print:bg-white print:border-black">
+            <span class="text-[10px] text-slate-400 print:text-black block">收件地址</span>
+            <p class="text-xs font-medium text-slate-900 print:text-black select-all">${escapeHtml(order.address)}</p>
+          </div>
+          <div>
+            <span class="text-[10px] text-slate-400 print:text-black block mb-1">內含商品與細目對應 (${order.items.length} 列)</span>
+            <ul class="bg-white/80 rounded p-2 border border-slate-200/80 space-y-0.5 print:border-black">
+              ${itemsHtml}
+            </ul>
+          </div>
+        `;
+
+        cardsContainer.appendChild(card);
+
+        // 渲染該卡片的 Code 128 條碼
+        try {
+          JsBarcode(`#${barcodeSvgId}`, cleanBarcodeVal, {
+            format: "CODE128",
+            width: 1.5,
+            height: 28,
+            displayValue: true,
+            fontSize: 10,
+            margin: 2
+          });
+        } catch (e) {
+          console.warn('Barcode render skipped for:', cleanBarcodeVal);
+        }
+
+        cardNum++;
+      });
+    }
+
+    /* =========================================================
+       🆕 手機掃碼包裝工作站邏輯 (Pack Mode)
+    ========================================================= */
+    function initPackOrdersData(ordersMap) {
+      packOrdersList = [];
+      ordersMap.forEach((order) => {
+        // 合併同一張訂單內「相同型號(model)」的商品數量，方便掃碼累加
+        const mergedItemsMap = new Map();
+        order.items.forEach(item => {
+          const key = normalizeKey(item.model);
+          if (!mergedItemsMap.has(key)) {
+            mergedItemsMap.set(key, {
+              model: item.model,
+              normModel: key,
+              detailName: item.detailName,
+              qty: 0,
+              scanned: 0
+            });
+          }
+          mergedItemsMap.get(key).qty += item.qty;
+        });
+
+        packOrdersList.push({
+          orderId: order.orderId,
+          cleanId: order.orderId.replace(/^#/, '').trim().toUpperCase(),
+          name: order.name,
+          phone: order.phone,
+          address: order.address,
+          adjustment: order.adjustment,
+          pkg: getOrderPackagingSummary(order),
+          items: Array.from(mergedItemsMap.values())
+        });
+      });
+
+      currentPackOrderIdx = 0;
+
+      if (currentMode === 'pack' && packOrdersList.length > 0) {
+        document.getElementById('pack-upload-prompt').classList.add('hidden');
+        document.getElementById('pack-workspace').classList.remove('hidden');
+        renderPackWorkspace();
+        startMobileScanner();
+      }
+    }
+
+    function renderPackWorkspace() {
+      if (packOrdersList.length === 0) return;
+
+      const selectEl = document.getElementById('pack-order-select');
+      selectEl.innerHTML = '';
+
+      packOrdersList.forEach((ord, idx) => {
+        const totalQty = ord.items.reduce((s, i) => s + i.qty, 0);
+        const scannedQty = ord.items.reduce((s, i) => s + i.scanned, 0);
+        let statusTag = '';
+        if (scannedQty >= totalQty && totalQty > 0) {
+          statusTag = '✅ [已完成]';
+        } else if (scannedQty > 0) {
+          statusTag = `⏳ [缺件暫存 ${scannedQty}/${totalQty}]`;
+        } else {
+          statusTag = `⬜ [待包裝 ${totalQty}件]`;
+        }
+
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${ord.orderId} (${ord.name}) ${statusTag}`;
+        if (idx === currentPackOrderIdx) opt.selected = true;
+        selectEl.appendChild(opt);
+      });
+
+      const currentOrder = packOrdersList[currentPackOrderIdx];
+      document.getElementById('pack-order-id').textContent = currentOrder.orderId;
+      document.getElementById('pack-customer-info').textContent = `${currentOrder.name} · ${currentOrder.phone}`;
+
+      // 顯示包材標籤
+      const boxBadgesEl = document.getElementById('pack-box-badges');
+      boxBadgesEl.innerHTML = '';
+      currentOrder.pkg.boxes.forEach((q, name) => {
+        boxBadgesEl.innerHTML += `<span class="text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded">📦 盒：${escapeHtml(name)} ×${q}</span>`;
+      });
+      currentOrder.pkg.linings.forEach((q, name) => {
+        boxBadgesEl.innerHTML += `<span class="text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded">🧩 襯：${escapeHtml(name)} ×${q}</span>`;
+      });
+
+      // 顯示異動提醒
+      const adjAlert = document.getElementById('pack-adjustment-alert');
+      if (currentOrder.adjustment) {
+        adjAlert.classList.remove('hidden');
+        adjAlert.textContent = currentOrder.adjustment.status === 'applied'
+          ? `⚠️ 注意：此單有未收餘額，已自動排除退訂商品。`
+          : `⚠️ 注意：此單有未收餘額，請人工確認商品數量！`;
+      } else {
+        adjAlert.classList.add('hidden');
+      }
+
+      // 渲染待核對商品卡片
+      const listEl = document.getElementById('pack-items-list');
       listEl.innerHTML = '';
 
-      let allDone = true;
-      order.items.forEach(item => {
+      let totalNeeded = 0;
+      let totalScanned = 0;
+
+      currentOrder.items.forEach((item, itemIdx) => {
+        totalNeeded += item.qty;
+        totalScanned += item.scanned;
         const isDone = item.scanned >= item.qty;
-        if (!isDone) allDone = false;
 
         const card = document.createElement('div');
-        card.className = `item-card ${isDone ? 'done' : ''}`;
+        card.className = `p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+          isDone
+            ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+            : 'bg-white border-slate-200 text-slate-900 shadow-sm'
+        }`;
+
         card.innerHTML = `
-          <div class="item-info">
-            <div class="item-name">${item.name}</div>
-            <div class="item-sku">SKU: ${item.sku}</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-sm truncate">${escapeHtml(item.detailName)}</div>
+            <div class="text-xs font-mono ${isDone ? 'text-emerald-700' : 'text-slate-500'} mt-0.5">
+              型號：${escapeHtml(item.model)}
+            </div>
           </div>
-          <div class="item-count">${item.scanned} / ${item.qty}</div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-lg font-black font-mono ${isDone ? 'text-emerald-600' : 'text-slate-900'}">
+              ${item.scanned} / ${item.qty}
+            </span>
+            ${!isDone ? `<button onclick="manualIncrementItem(${itemIdx})" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-bold" title="手動+1">+1</button>` : '✅'}
+          </div>
         `;
         listEl.appendChild(card);
       });
 
-      const banner = document.getElementById('statusBanner');
-      const nextBtn = document.getElementById('nextOrderBtn');
+      document.getElementById('pack-order-progress').textContent = `${totalScanned} / ${totalNeeded} 件`;
 
-      if (allDone) {
-        banner.className = 'status-banner complete';
-        banner.textContent = '🎉 核對完成！請封箱貼單';
-        nextBtn.textContent = '✅ 完成，進入下一筆訂單 →';
-        nextBtn.style.background = '#16a34a';
+      const banner = document.getElementById('pack-status-banner');
+      const nextBtn = document.getElementById('pack-next-btn');
+
+      if (totalNeeded > 0 && totalScanned >= totalNeeded) {
+        banner.className = 'p-3.5 rounded-xl text-center font-bold text-base bg-emerald-600 text-white shadow-md';
+        banner.textContent = '🎉 本單核對完成！請封箱並貼上寄件單';
+        nextBtn.className = 'w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md transition-all';
+        nextBtn.textContent = '✅ 完成，進入下一筆未包裝訂單 →';
       } else {
-        nextBtn.textContent = '跳過 / 下一筆訂單 →';
-        nextBtn.style.background = '#292524';
+        nextBtn.className = 'w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-md transition-all';
+        nextBtn.textContent = '⏳ 暫存缺件 / 跳至下一筆未完成訂單 →';
       }
     }
 
-    function processScannedSku(rawSku) {
-      const sku = rawSku.trim().toUpperCase();
-      if (!sku) return;
+    function selectPackOrder(idxStr) {
+      currentPackOrderIdx = parseInt(idxStr, 10) || 0;
+      const banner = document.getElementById('pack-status-banner');
+      banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-white border border-slate-200 text-slate-700 shadow-sm';
+      banner.textContent = `已切換至 ${packOrdersList[currentPackOrderIdx].orderId}，請掃描商品條碼`;
+      renderPackWorkspace();
+    }
 
-      const order = orders[currentOrderIndex];
-      const banner = document.getElementById('statusBanner');
-      const matchedItem = order.items.find(i => i.sku.toUpperCase() === sku);
+    function goToNextUnfinishedOrder() {
+      if (packOrdersList.length === 0) return;
+      // 往後尋找下一筆還沒刷滿的訂單
+      for (let offset = 1; offset <= packOrdersList.length; offset++) {
+        const candidateIdx = (currentPackOrderIdx + offset) % packOrdersList.length;
+        const ord = packOrdersList[candidateIdx];
+        const isDone = ord.items.every(i => i.scanned >= i.qty);
+        if (!isDone) {
+          selectPackOrder(candidateIdx);
+          return;
+        }
+      }
+      playFeedbackTone('complete');
+      alert('🎉 太棒了！所有訂單都已經全數核對包裝完成！');
+    }
+
+    function manualIncrementItem(itemIdx) {
+      const ord = packOrdersList[currentPackOrderIdx];
+      if (!ord || !ord.items[itemIdx]) return;
+      processPackBarcode(ord.items[itemIdx].model);
+    }
+
+    function handlePackManualSubmit() {
+      const input = document.getElementById('pack-manual-input');
+      const code = input.value.trim();
+      if (!code) return;
+      processPackBarcode(code);
+      input.value = '';
+    }
+
+    // 核心掃碼判斷：自動區分「訂單編號條碼」或「商品型號 SKU 條碼」
+    function processPackBarcode(rawCode) {
+      const code = normalizeKey(rawCode);
+      const cleanOrderCode = code.replace(/^#/, '');
+      if (!code || packOrdersList.length === 0) return;
+
+      const banner = document.getElementById('pack-status-banner');
+
+      // 1. 先檢查是否掃到了「訂單編號條碼」（切換訂單）
+      const matchedOrderIndex = packOrdersList.findIndex(
+        o => o.cleanId === cleanOrderCode || normalizeKey(o.orderId) === code
+      );
+      if (matchedOrderIndex !== -1) {
+        playFeedbackTone('switch');
+        currentPackOrderIdx = matchedOrderIndex;
+        banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-indigo-50 border border-indigo-300 text-indigo-900';
+        banner.textContent = `📋 已切換訂單：${packOrdersList[matchedOrderIndex].orderId} (${packOrdersList[matchedOrderIndex].name})`;
+        renderPackWorkspace();
+        return;
+      }
+
+      // 2. 否則當作「商品型號（SKU）」進行核對
+      const currentOrder = packOrdersList[currentPackOrderIdx];
+      const matchedItem = currentOrder.items.find(i => i.normModel === code);
 
       if (!matchedItem) {
-        // 刷錯商品
-        playTone('error');
-        banner.className = 'status-banner error';
-        banner.textContent = `❌ 錯誤！此訂單不含 [${sku}]`;
+        playFeedbackTone('error');
+        banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-rose-100 border border-rose-400 text-rose-900';
+        banner.textContent = `❌ 拿錯商品！本訂單不含型號 [${rawCode}]`;
         return;
       }
 
       if (matchedItem.scanned >= matchedItem.qty) {
-        // 數量已滿，多刷了
-        playTone('error');
-        banner.className = 'status-banner error';
-        banner.textContent = `⚠️ 數量已滿！[${sku}] 不需要再拿了`;
+        playFeedbackTone('error');
+        banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-amber-100 border border-amber-400 text-amber-950';
+        banner.textContent = `⚠️ 數量已滿！[${matchedItem.detailName}] 不需要再拿了`;
         return;
       }
 
-      // 核對成功
+      // 核對成功 +1
       matchedItem.scanned += 1;
-      const isOrderComplete = order.items.every(i => i.scanned >= i.qty);
+      const isOrderComplete = currentOrder.items.every(i => i.scanned >= i.qty);
 
       if (isOrderComplete) {
-        playTone('complete');
+        playFeedbackTone('complete');
       } else {
-        playTone('success');
-        banner.className = 'status-banner success';
-        banner.textContent = `✅ 正確：${matchedItem.name} (${matchedItem.scanned}/${matchedItem.qty})`;
+        playFeedbackTone('success');
+        banner.className = 'p-3 rounded-xl text-center font-bold text-sm bg-emerald-100 border border-emerald-400 text-emerald-900';
+        banner.textContent = `✅ 正確：${matchedItem.detailName} (${matchedItem.scanned}/${matchedItem.qty})`;
       }
 
-      renderOrder();
+      renderPackWorkspace();
     }
 
-    function handleManualSubmit() {
-      const input = document.getElementById('manualSku');
-      processScannedSku(input.value);
-      input.value = '';
+    // Web Audio API 音效合成器
+    const packAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playFeedbackTone(type) {
+      try {
+        if (packAudioCtx.state === 'suspended') packAudioCtx.resume();
+        const osc = packAudioCtx.createOscillator();
+        const gain = packAudioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(packAudioCtx.destination);
+        const now = packAudioCtx.currentTime;
+
+        if (type === 'success') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, now);
+          osc.frequency.setValueAtTime(1174.66, now + 0.08);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+          osc.start(now);
+          osc.stop(now + 0.25);
+        } else if (type === 'switch') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(660, now);
+          gain.gain.setValueAtTime(0.25, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        } else if (type === 'error') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(180, now);
+          osc.frequency.setValueAtTime(135, now + 0.15);
+          gain.gain.setValueAtTime(0.45, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+          osc.start(now);
+          osc.stop(now + 0.4);
+        } else if (type === 'complete') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(523.25, now);
+          osc.frequency.setValueAtTime(659.25, now + 0.1);
+          osc.frequency.setValueAtTime(783.99, now + 0.2);
+          osc.frequency.setValueAtTime(1046.50, now + 0.3);
+          gain.gain.setValueAtTime(0.35, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+          osc.start(now);
+          osc.stop(now + 0.55);
+        }
+      } catch (e) {}
     }
 
-    // 支援藍牙條碼槍按 Enter 自動送出
-    document.getElementById('manualSku').addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') handleManualSubmit();
-    });
-
-    function loadNextOrder() {
-      if (currentOrderIndex < orders.length - 1) {
-        currentOrderIndex++;
-        const banner = document.getElementById('statusBanner');
-        banner.className = 'status-banner';
-        banner.textContent = '請將商品 SKU 條碼對準鏡頭';
-        renderOrder();
-      } else {
-        alert('所有訂單皆已處理完畢！');
+    function startMobileScanner() {
+      if (isScannerRunning) return;
+      const statusText = document.getElementById('camera-status-text');
+      if (!html5QrCodeInstance) {
+        html5QrCodeInstance = new Html5Qrcode("qr-reader");
       }
-    }
 
-    // ==========================================
-    // 啟動手機相機掃描器
-    // ==========================================
-    function startScanner() {
-      const html5QrCode = new Html5Qrcode("reader");
-      const config = {
-        fps: 10, // 每秒掃描幀數
-        qrbox: { width: 260, height: 120 }, // 適合一維條碼的長方形掃描框
-        aspectRatio: 1.777778
-      };
-
-      // 優先使用手機後置鏡頭 ("environment")
-      html5QrCode.start(
+      html5QrCodeInstance.start(
         { facingMode: "environment" },
-        config,
+        { fps: 10, qrbox: { width: 250, height: 110 }, aspectRatio: 1.777778 },
         (decodedText) => {
           const now = Date.now();
-          // 防呆冷卻：同一個條碼 2 秒內不重複觸發，避免連續誤扣
-          if (decodedText === lastScannedCode && (now - lastScanTime) < 2000) {
+          if (decodedText === lastScannedCode && (now - lastScanTimestamp) < 2000) {
             return;
           }
           lastScannedCode = decodedText;
-          lastScanTime = now;
-          processScannedSku(decodedText);
+          lastScanTimestamp = now;
+          processPackBarcode(decodedText);
         },
-        (errorMessage) => {
-          // 掃描過程中的未對焦雜訊忽略即可
-        }
-      ).catch(err => {
-        document.getElementById('statusBanner').textContent = '⚠️ 無法開啟相機（請確認使用 HTTPS 網址並允許相機權限）';
+        () => {}
+      ).then(() => {
+        isScannerRunning = true;
+        if (statusText) statusText.textContent = '🟢 鏡頭掃描運作中';
+      }).catch(() => {
+        isScannerRunning = false;
+        if (statusText) statusText.textContent = '⚠️ 無法開啟鏡頭（請確認 HTTPS 與權限，或用藍牙槍）';
       });
     }
 
-    // 初始化
-    renderOrder();
-    window.addEventListener('load', startScanner);
+    function stopMobileScanner() {
+      if (html5QrCodeInstance && isScannerRunning) {
+        html5QrCodeInstance.stop().then(() => {
+          isScannerRunning = false;
+        }).catch(() => {});
+      }
+    }
+
+    function toggleScanner() {
+      stopMobileScanner();
+      setTimeout(() => startMobileScanner(), 300);
+    }
+
+    function renderScreenExtraSummary(liningCounts, boxCounts) {
+      const container = document.getElementById('logic-a-extra-summary');
+      if (!container) return;
+
+      const boxItems = Array.from(boxCounts.entries()).map(([box, qty]) => `
+        <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
+          <span class="font-medium text-slate-800">包裝盒 「<strong class="text-indigo-700">${escapeHtml(box)}</strong>」</span>
+          <span class="font-bold text-slate-900 font-mono bg-slate-100 px-2.5 py-0.5 rounded">${qty}</span>
+        </div>
+      `).join('') || '<p class="text-xs text-slate-400 py-1">無統計資料</p>';
+
+      const liningItems = Array.from(liningCounts.entries()).map(([lining, qty]) => `
+        <div class="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
+          <span class="font-medium text-slate-800">內襯 「<strong class="text-emerald-700">${escapeHtml(lining)}</strong>」</span>
+          <span class="font-bold text-slate-900 font-mono bg-slate-100 px-2.5 py-0.5 rounded">${qty}</span>
+        </div>
+      `).join('') || '<p class="text-xs text-slate-400 py-1">無統計資料</p>';
+
+      container.innerHTML = `
+        <div class="jp-card p-4 bg-white">
+          <h4 class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            📦 包裝盒總量統計 (K列)
+          </h4>
+          <div class="space-y-0.5">${boxItems}</div>
+        </div>
+        <div class="jp-card p-4 bg-white">
+          <h4 class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            🧩 內襯總量統計 (J列)
+          </h4>
+          <div class="space-y-0.5">${liningItems}</div>
+        </div>
+      `;
+    }
+
+    function printA5Summary() {
+      if (!rawExcelRows || rawExcelRows.length === 0 || lastProcessedDetailSummaryMap.size === 0) {
+        showToast('請先上傳並解析 Excel 訂單檔案！', 'error');
+        return;
+      }
+
+      renderA5PrintView();
+
+      let styleTag = document.getElementById('a5-print-style-override');
+      if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'a5-print-style-override';
+        document.head.appendChild(styleTag);
+      }
+      styleTag.innerHTML = `@page { size: A4 landscape; margin: 0; }`;
+
+      document.body.classList.add('printing-a5');
+      window.print();
+
+      setTimeout(() => {
+        document.body.classList.remove('printing-a5');
+        if (styleTag) styleTag.remove();
+      }, 1000);
+    }
+
+    function renderA5PrintView() {
+      const container = document.getElementById('a5-print-view');
+      if (!container) return;
+
+      const excludeTk = document.getElementById('exclude-tk-checkbox')?.checked || false;
+      const excludeNoModel = document.getElementById('exclude-nomodel-checkbox')?.checked || false;
+
+      const now = new Date();
+      const timeStr = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      let sortedSummaries = Array.from(lastProcessedDetailSummaryMap.entries()).sort(([detailA], [detailB]) => {
+        const orderA = detailOrderMap.has(detailA) ? detailOrderMap.get(detailA) : 999999;
+        const orderB = detailOrderMap.has(detailB) ? detailOrderMap.get(detailB) : 999999;
+
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return detailA.localeCompare(detailB, 'zh-TW');
+      });
+
+      if (excludeTk) {
+        sortedSummaries = sortedSummaries.filter(([detailName, data]) => {
+          const models = Array.from(data.originalModels || []);
+          if (models.length === 0) {
+            return !normalizeKey(detailName).startsWith('TK');
+          }
+          return !models.some(m => normalizeKey(m).startsWith('TK'));
+        });
+      }
+
+      if (excludeNoModel) {
+        sortedSummaries = sortedSummaries.filter(([detailName]) => {
+          return detailName !== '無型號品項' && !detailName.includes('無型號品項') && !detailName.includes('未對應細目');
+        });
+      }
+
+      let totalItemsQty = 0;
+      const liningCounts = new Map();
+      const boxCounts = new Map();
+
+      sortedSummaries.forEach(([detailName, data]) => {
+        totalItemsQty += data.totalQty;
+
+        const extraInfo = detailExtraInfoMap.get(detailName) || { lining: '', box: '' };
+        if (extraInfo.lining && extraInfo.lining !== '-') {
+          liningCounts.set(extraInfo.lining, (liningCounts.get(extraInfo.lining) || 0) + data.totalQty);
+        }
+        if (extraInfo.box && extraInfo.box !== '-') {
+          boxCounts.set(extraInfo.box, (boxCounts.get(extraInfo.box) || 0) + data.totalQty);
+        }
+      });
+
+      let tags = [];
+      if (excludeTk) tags.push('已排除配件 TK');
+      if (excludeNoModel) tags.push('已排除無型號品項');
+      const tagText = tags.length > 0 ? `<span style="font-size: 8.5pt; font-weight: normal; color: #555; margin-left: 6px;">[${tags.join(' / ')}]</span>` : '';
+
+      const itemsPerPage = 38;
+      const totalPages = Math.max(1, Math.ceil(sortedSummaries.length / itemsPerPage));
+      let pagesHtml = '';
+
+      for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+        const pageSummaries = sortedSummaries.slice(pageIdx * itemsPerPage, (pageIdx + 1) * itemsPerPage);
+        const leftSummaries = pageSummaries.slice(0, 19);
+        const rightSummaries = pageSummaries.slice(19, 38);
+
+        const leftStartIdx = pageIdx * itemsPerPage + 1;
+        const rightStartIdx = pageIdx * itemsPerPage + 20;
+
+        const leftRowsHtml = buildA5TableRows(leftSummaries, leftStartIdx);
+        const rightRowsHtml = rightSummaries.length > 0 ? buildA5TableRows(rightSummaries, rightStartIdx) : '';
+
+        const pageLabel = totalPages > 1 ? ` (${pageIdx + 1}/${totalPages})` : '';
+
+        const leftBoxHtml = `
+          <div class="a5-box-half">
+            <div class="a5-box-inner">
+              <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 6px;">
+                <div>
+                  <h2 style="font-size: 15pt; font-weight: bold; margin: 0; padding: 0; letter-spacing: 0.5px;">
+                    黑柳徹出貨彙整表${pageLabel}
+                  </h2>
+                  <div style="font-size: 9pt; color: #333; margin-top: 2px;">
+                    <span>列印時間：${timeStr}</span>${tagText}
+                  </div>
+                </div>
+                <div style="text-align: right; font-size: 10pt; line-height: 1.2;">
+                  <div>款式: <strong style="font-size: 11pt;">${sortedSummaries.length}</strong> 款</div>
+                  <div>總件數: <strong style="font-size: 11pt;">${totalItemsQty}</strong> 件</div>
+                </div>
+              </div>
+
+              <div style="flex-grow: 1; overflow: hidden;">
+                <table class="a5-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 28px; text-align: center; border-right: 1px solid #000;">#</th>
+                      <th style="text-align: left; border-right: 1px solid #000;">對應細目名稱 (Google Sheet G列)</th>
+                      <th style="width: 60px; text-align: center;">總數量</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${leftRowsHtml}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+
+        let rightBoxHtml = '';
+        if (rightSummaries.length > 0) {
+          rightBoxHtml = `
+            <div class="a5-box-half">
+              <div class="a5-box-inner">
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 6px;">
+                  <div>
+                    <h2 style="font-size: 15pt; font-weight: bold; margin: 0; padding: 0; letter-spacing: 0.5px;">
+                      黑柳徹出貨彙整表 (續)${pageLabel}
+                    </h2>
+                    <div style="font-size: 9pt; color: #333; margin-top: 2px;">
+                      <span>列印時間：${timeStr}</span>
+                    </div>
+                  </div>
+                  <div style="text-align: right; font-size: 10pt; line-height: 1.2;">
+                    <div>款式: <strong style="font-size: 11pt;">${sortedSummaries.length}</strong> 款</div>
+                    <div>總件數: <strong style="font-size: 11pt;">${totalItemsQty}</strong> 件</div>
+                  </div>
+                </div>
+
+                <div style="flex-grow: 1; overflow: hidden;">
+                  <table class="a5-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 28px; text-align: center; border-right: 1px solid #000;">#</th>
+                        <th style="text-align: left; border-right: 1px solid #000;">對應細目名稱 (Google Sheet G列)</th>
+                        <th style="width: 60px; text-align: center;">總數量</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${rightRowsHtml}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
+          rightBoxHtml = buildA5StatsBoxHtml(liningCounts, boxCounts, timeStr);
+        }
+
+        pagesHtml += `
+          <div class="a5-page-wrapper">
+            ${leftBoxHtml}
+            <div style="position: absolute; left: 148.5mm; top: 0; bottom: 0; width: 0; border-left: 1.5px dashed #666; pointer-events: none; z-index: 20;"></div>
+            ${rightBoxHtml}
+          </div>
+        `;
+      }
+
+      const lastPageCount = sortedSummaries.length % itemsPerPage;
+      if (sortedSummaries.length > 0 && (lastPageCount > 19 || lastPageCount === 0)) {
+        pagesHtml += `
+          <div class="a5-page-wrapper">
+            ${buildA5StatsBoxHtml(liningCounts, boxCounts, timeStr)}
+            <div style="position: absolute; left: 148.5mm; top: 0; bottom: 0; width: 0; border-left: 1.5px dashed #666; pointer-events: none; z-index: 20;"></div>
+            <div class="a5-box-half"></div>
+          </div>
+        `;
+      }
+
+      container.innerHTML = pagesHtml;
+    }
+
+    function buildA5StatsBoxHtml(liningCounts, boxCounts, timeStr) {
+      const boxRowsHtml = Array.from(boxCounts.entries()).map(([box, qty]) => `
+        <tr>
+          <td style="border-right: 1px solid #000; font-size: 11pt; padding: 4px 6px;">包裝盒 <strong>「${escapeHtml(box)}」</strong></td>
+          <td style="text-align: center; font-weight: bold; font-size: 13pt; font-family: monospace;">${qty}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="2" style="text-align: center; color: #666; font-size: 10pt; padding: 6px;">無包裝盒統計資料</td></tr>`;
+
+      const liningRowsHtml = Array.from(liningCounts.entries()).map(([lining, qty]) => `
+        <tr>
+          <td style="border-right: 1px solid #000; font-size: 11pt; padding: 4px 6px;">內襯 <strong>「${escapeHtml(lining)}」</strong></td>
+          <td style="text-align: center; font-weight: bold; font-size: 13pt; font-family: monospace;">${qty}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="2" style="text-align: center; color: #666; font-size: 10pt; padding: 6px;">無內襯統計資料</td></tr>`;
+
+      return `
+        <div class="a5-box-half">
+          <div class="a5-box-inner" style="justify-content: flex-start;">
+            <div style="border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 8px;">
+              <h2 style="font-size: 15pt; font-weight: bold; margin: 0; padding: 0; letter-spacing: 0.5px;">
+                內襯 & 包裝盒用量統計
+              </h2>
+              <div style="font-size: 9pt; color: #333; margin-top: 2px;">
+                <span>列印時間：${timeStr}</span>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="font-size: 11pt; font-weight: bold; background-color: #e2e8f0; padding: 4px 6px; border: 1px solid #000; border-bottom: none;">
+                📦 包裝盒用量統計 (K列)
+              </div>
+              <table class="a5-table">
+                <thead>
+                  <tr>
+                    <th style="text-align: left; border-right: 1px solid #000;">包裝盒款式</th>
+                    <th style="width: 100px; text-align: center;">總需求量</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${boxRowsHtml}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <div style="font-size: 11pt; font-weight: bold; background-color: #e2e8f0; padding: 4px 6px; border: 1px solid #000; border-bottom: none;">
+                🧩 內襯用量統計 (J列)
+              </div>
+              <table class="a5-table">
+                <thead>
+                  <tr>
+                    <th style="text-align: left; border-right: 1px solid #000;">內襯款式</th>
+                    <th style="width: 100px; text-align: center;">總需求量</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${liningRowsHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function buildA5TableRows(summaries, startIdx) {
+      let html = '';
+      summaries.forEach(([detailName, data], index) => {
+        const idx = startIdx + index;
+        const isUnmapped = detailName === '無型號品項' || detailName.includes('未對應細目') || !data.isMapped;
+        const orderIdsStr = Array.from(data.orderIds || []).map(o => escapeHtml(o)).join(', ');
+
+        let detailDisplay = escapeHtml(detailName);
+        if (isUnmapped && data.orderIds && data.orderIds.size > 0) {
+          detailDisplay += ` <span style="font-weight: normal; font-size: 10pt; color: #dc2626;">(訂單: ${orderIdsStr})</span>`;
+        }
+
+        const fontStyle = isUnmapped ? 'color: #dc2626; font-weight: bold;' : 'font-weight: bold;';
+
+        html += `
+          <tr>
+            <td style="text-align: center; border-right: 1px solid #000; font-family: monospace; font-size: 10.5pt;">${idx}</td>
+            <td style="${fontStyle} border-right: 1px solid #000; font-size: 12pt; line-height: 1.25;">${detailDisplay}</td>
+            <td style="text-align: center; font-weight: bold; font-size: 12.5pt; font-family: monospace;">${data.totalQty}</td>
+          </tr>
+        `;
+      });
+      return html;
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function exportHsinchuLogisticsExcel() {
+      if (!lastProcessedOrdersMap || lastProcessedOrdersMap.size === 0) {
+        showToast('請先上傳並解析 Excel 訂單檔案！', 'error');
+        return;
+      }
+
+      const exportData = [
+        [
+          "序號(無用途)",
+          "訂單號",
+          "收件人姓名(必填)",
+          "收件人地址(必填)",
+          "收件人電話(必填)",
+          "託運備註",
+          "(商品別編號)",
+          "商品數量(必填)",
+          "才積/重量/總長",
+          "代收貨款",
+          "指定配送日期YYYYMMDD",
+          "指定配送時間"
+        ]
+      ];
+
+      let seq = 1;
+      lastProcessedOrdersMap.forEach((order) => {
+        const cleanAddr = (order.address || '').replace(/^['’]+/, '').trim();
+        const formattedPhone = formatPhoneNumber(order.phone || '');
+
+        exportData.push([
+          '',
+          order.orderId || '',
+          order.name || '',
+          cleanAddr,
+          formattedPhone,
+          '',
+          '',
+          1,
+          2,
+          '',
+          '',
+          ''
+        ]);
+        seq++;
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+      worksheet['!cols'] = [
+        { wch: 14 },
+        { wch: 20 },
+        { wch: 18 },
+        { wch: 48 },
+        { wch: 18 },
+        { wch: 42 },
+        { wch: 15 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 22 },
+        { wch: 16 }
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "新竹物流託運單");
+
+      const now = new Date();
+      const timeStamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
+      XLSX.writeFile(workbook, `新竹物流託運單匯入檔_${timeStamp}.xlsx`);
+      showToast(`已成功匯出新竹物流 Excel 檔 (${seq - 1} 筆資料)`, 'success');
+    }
+
+    async function exportAddressCheckAndOpenGemini() {
+      if (!lastProcessedOrdersMap || lastProcessedOrdersMap.size === 0) {
+        showToast('請先上傳並解析 Excel 訂單檔案！', 'error');
+        return;
+      }
+
+      const exportData = [["項次", "訂單號", "收件人姓名", "聯絡電話", "待校對收件地址"]];
+      let seq = 1;
+      lastProcessedOrdersMap.forEach((order) => {
+        exportData.push([seq++, order.orderId, order.name, order.phone, order.address]);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(exportData);
+      worksheet['!cols'] = [{ wch: 8 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 50 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "待驗證地址清單");
+
+      const now = new Date();
+      const timeStamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
+      XLSX.writeFile(workbook, `待校對地址清單_${timeStamp}.xlsx`);
+
+      const promptTemplate = `請扮演台灣專業物流地址校對專家，幫我檢查上傳的 Excel 檔案中的「待校對收件地址」欄位。
+
+請詳細檢查並列出：
+1. 【有疑慮/錯誤/缺漏的地址】：包含缺少縣市/鄉鎮區、郵遞區號不對、門牌號碼不完整、或有錯別字/簡體字等問題。
+2. 【建議修正對照】：針對有問題的項目，提供標準正確格式的地址。
+3. 如果所有地址皆完整無誤，請明確回覆「所有訂單地址皆格式完整正確」。`;
+
+      let copiedSuccess = false;
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(promptTemplate);
+          copiedSuccess = true;
+        } catch (err) {
+          console.warn('Modern Clipboard API failed, attempting fallback...', err);
+        }
+      }
+
+      if (!copiedSuccess) {
+        try {
+          const dummyInput = document.createElement('textarea');
+          dummyInput.value = promptTemplate;
+          dummyInput.style.position = 'fixed';
+          dummyInput.style.opacity = '0';
+          document.body.appendChild(dummyInput);
+          dummyInput.select();
+          document.execCommand('copy');
+          document.body.removeChild(dummyInput);
+          copiedSuccess = true;
+        } catch (e) {
+          copiedSuccess = false;
+        }
+      }
+
+      if (copiedSuccess) {
+        showToast('已複製 AI 校對指令至剪貼簿！已下載 Excel 檢核檔', 'success');
+      } else {
+        showToast('已下載 Excel 檢核檔，請直接前往 Gemini 上傳分析', 'info');
+      }
+
+      setTimeout(() => {
+        window.open('https://gemini.google.com', '_blank');
+      }, 800);
+    }
   </script>
 </body>
 </html>
