@@ -468,9 +468,9 @@
 
         <div class="flex flex-wrap items-center gap-2">
           <div class="flex items-center gap-1.5 bg-emerald-50/80 border border-emerald-200 px-2.5 py-1.5 rounded-lg">
-            <span class="text-[11px] font-bold text-emerald-800">出貨日期：</span>
-            <input type="date" id="batch-date-input" class="bg-white border border-emerald-300 rounded px-2 py-0.5 text-xs font-mono text-slate-800 focus:outline-none">
-            <button onclick="saveBatchToCloud()" id="save-cloud-btn" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-sm transition-all" title="自動去識別化遮蔽個資後上傳">
+            <span class="text-[11px] font-bold text-emerald-800">批次名稱(自動時間)：</span>
+            <span id="batch-timestamp-preview" class="bg-white border border-emerald-300 rounded px-2 py-0.5 text-xs font-mono font-bold text-slate-800">-</span>
+            <button onclick="saveBatchToCloud()" id="save-cloud-btn" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-sm transition-all" title="自動去識別化遮蔽個資並以當下日期時間命名上傳">
               ☁️ 儲存供手機掃碼
             </button>
           </div>
@@ -547,27 +547,27 @@
   ========================================================= -->
   <section id="pack-mode-view" class="hidden flex-grow max-w-lg w-full mx-auto px-4 py-5 space-y-4">
     
-    <!-- 從獨立出貨暫存庫選擇日期批次 -->
+    <!-- 從獨立出貨暫存庫選擇批次 -->
     <div id="pack-upload-prompt" class="jp-card p-6 text-center space-y-4">
       <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto font-bold text-xl">
         📅
       </div>
       <div>
-        <h2 class="text-base font-bold text-slate-900">選擇出貨日期批次</h2>
-        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取當日訂單（已啟用個資遮蔽保護）</p>
+        <h2 class="text-base font-bold text-slate-900">選擇出貨批次</h2>
+        <p class="text-xs text-slate-500 mt-1">自動從雲端暫存庫抓取批次訂單（已啟用個資遮蔽保護）</p>
       </div>
 
       <div class="space-y-2.5 text-left">
         <div class="flex gap-2">
           <select id="cloud-batch-select" class="flex-1 p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 font-mono">
-            <option value="">讀取雲端出貨日期中...</option>
+            <option value="">讀取雲端出貨批次中...</option>
           </select>
           <button onclick="fetchCloudBatchList()" class="px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 text-xs font-bold" title="重新整理清單">
             🔄
           </button>
         </div>
         <button onclick="loadSelectedCloudBatch()" id="load-batch-btn" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
-          🚀 載入此日期訂單並開始掃碼
+          🚀 載入此批次訂單並開始掃碼
         </button>
       </div>
 
@@ -598,22 +598,22 @@
         <select id="pack-order-select" onchange="selectPackOrder(this.value)" class="flex-1 bg-slate-50 border border-slate-300 text-slate-900 text-sm font-bold rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono">
           <!-- 動態產生訂單選項 -->
         </select>
-        <button onclick="backToDateSelector()" class="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg shrink-0" title="重選出貨日期">
-          📅 換日
+        <button onclick="backToDateSelector()" class="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg shrink-0" title="重選批次">
+          📅 換批
         </button>
       </div>
 
-      <!-- 2. 當前訂單資訊與包材提示（個資遮蔽顯示） -->
+      <!-- 2. 當前訂單資訊與包材提示（訂單編號 40px、收件人與電話 30px） -->
       <div class="jp-card p-4 space-y-2.5">
         <div class="flex items-start justify-between gap-2">
-          <div>
-            <div class="flex items-center gap-2">
-              <span id="pack-order-id" class="text-xl font-black text-slate-900 font-mono">#1001</span>
-              <span id="pack-order-progress" class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">0 / 0</span>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="pack-order-id" class="text-[40px] leading-none font-black text-slate-900 font-mono tracking-tight">#1001</span>
+              <span id="pack-order-progress" class="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-mono">0 / 0</span>
             </div>
-            <p id="pack-customer-info" class="text-xs text-slate-500 mt-0.5 font-mono">收件人：-</p>
+            <p id="pack-customer-info" class="text-[30px] leading-tight font-bold text-slate-800 mt-2 font-mono break-all">-</p>
           </div>
-          <div id="pack-box-badges" class="flex flex-col items-end gap-1">
+          <div id="pack-box-badges" class="flex flex-col items-end gap-1 shrink-0">
             <!-- 動態顯示建議包裝盒與內襯 -->
           </div>
         </div>
@@ -709,19 +709,31 @@
     let activeHeldCode = '';         // 目前停留在鏡頭前已掃過的條碼（未移開前鎖定）
     let clearAbsenceTimer = null;    // 偵測條碼已離開鏡頭的解鎖計時器
 
+    // 取得當下日期與時間字串，格式：YYYY.MM.DD-HH:mm（例如 2026.11.16-15:30）
+    function getCurrentBatchTimestamp() {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      return `${yyyy}.${mm}.${dd}-${hh}:${min}`;
+    }
+
+    function updateBatchTimestampPreview() {
+      const previewEl = document.getElementById('batch-timestamp-preview');
+      if (previewEl) {
+        previewEl.textContent = getCurrentBatchTimestamp();
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       fetchGoogleSheetMapping();
       setupDragAndDrop();
       setupModalKeyboardEvents();
 
-      const dateInput = document.getElementById('batch-date-input');
-      if (dateInput) {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        dateInput.value = `${yyyy}-${mm}-${dd}`;
-      }
+      updateBatchTimestampPreview();
+      setInterval(updateBatchTimestampPreview, 15000);
 
       fetchCloudBatchList();
 
@@ -858,9 +870,11 @@
         return;
       }
 
-      const dateVal = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
-      currentLoadedBatchKey = dateVal;
-      const label = computeBatchLabel(dateVal, packOrdersList);
+      const timestampKey = getCurrentBatchTimestamp();
+      currentLoadedBatchKey = timestampKey;
+      updateBatchTimestampPreview();
+
+      const label = computeBatchLabel(timestampKey, packOrdersList);
       const btn = document.getElementById('save-cloud-btn');
 
       btn.disabled = true;
@@ -870,7 +884,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          batchKey: dateVal,
+          batchKey: timestampKey,
           label: label,
           orders: serializePackOrders(packOrdersList)
         })
@@ -896,7 +910,7 @@
 
     function scheduleCloudProgressSync(immediate = false) {
       if (!currentLoadedBatchKey) {
-        currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
+        currentLoadedBatchKey = getCurrentBatchTimestamp();
       }
 
       const indicator = document.getElementById('cloud-sync-indicator');
@@ -919,7 +933,7 @@
     function syncPackProgressToCloud(showManualToast = false) {
       if (!packOrdersList || packOrdersList.length === 0) return;
       if (!currentLoadedBatchKey) {
-        currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
+        currentLoadedBatchKey = getCurrentBatchTimestamp();
       }
 
       if (isSyncingCloud) {
@@ -985,7 +999,7 @@
       const selectEl = document.getElementById('cloud-batch-select');
       if (!selectEl) return;
 
-      selectEl.innerHTML = '<option value="">正在讀取雲端出貨日期...</option>';
+      selectEl.innerHTML = '<option value="">正在讀取雲端出貨批次...</option>';
 
       fetch(`${BATCH_GAS_URL}?action=getBatchList`)
         .then(res => res.json())
@@ -1003,7 +1017,7 @@
           });
         })
         .catch(() => {
-          selectEl.innerHTML = '<option value="">讀取日期清單失敗，請點右側 🔄 重試</option>';
+          selectEl.innerHTML = '<option value="">讀取批次清單失敗，請點右側 🔄 重試</option>';
         });
     }
 
@@ -1011,7 +1025,7 @@
       const selectEl = document.getElementById('cloud-batch-select');
       const batchKey = selectEl?.value;
       if (!batchKey) {
-        showToast('請先選擇一個有效的出貨日期！', 'warning');
+        showToast('請先選擇一個有效的出貨批次！', 'warning');
         return;
       }
 
@@ -1064,7 +1078,7 @@
         })
         .finally(() => {
           btn.disabled = false;
-          btn.textContent = '🚀 載入此日期訂單並開始掃碼';
+          btn.textContent = '🚀 載入此批次訂單並開始掃碼';
         });
     }
 
@@ -1889,7 +1903,8 @@
       });
 
       currentPackOrderIdx = 0;
-      currentLoadedBatchKey = document.getElementById('batch-date-input')?.value || new Date().toISOString().slice(0, 10);
+      currentLoadedBatchKey = getCurrentBatchTimestamp();
+      updateBatchTimestampPreview();
 
       if (currentMode === 'pack' && packOrdersList.length > 0) {
         const batchTag = document.getElementById('pack-batch-tag');
